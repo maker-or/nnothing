@@ -1,15 +1,14 @@
 'use node';
 import { createOpenAI } from '@ai-sdk/openai';
-import { generateObject, generateText, tool,dynamicTool } from 'ai';
+import { generateObject, generateText, tool } from 'ai';
 import { v } from 'convex/values';
 import Exa from 'exa-js';
 import { z } from 'zod';
 import { AgentOutputSchema } from '../src/app/SlidesSchema';
 import { api } from './_generated/api';
 import { action } from './_generated/server';
-
-
-
+import { PostHog } from 'posthog-node';
+import { withTracing } from '@posthog/ai';
 
 export const agent = action({
   args: {
@@ -39,6 +38,9 @@ export const agent = action({
       );
     }
 
+    const phClient = new PostHog(process.env.POSTHOG_KEY!, {
+      host: process.env.POSTHOG_HOST ?? 'https://us.i.posthog.com',
+    });
 
     // Create OpenRouter client
     const openrouter = createOpenAI({
@@ -46,10 +48,77 @@ export const agent = action({
       apiKey: openRouterKey,
     });
 
+    const tracedModel = (modelName: string, ctx: { userId: string; courseId: string }) =>
+      withTracing(openrouter(modelName), phClient, {
+        posthogDistinctId: ctx.userId,
+        posthogProperties: {
+          course_id: ctx.courseId,
+          source: 'sphereai-agent',
+        },
+        // Optional: redact inputs/outputs if needed
+        // redactInput: true,
+        // redactOutput: true,
+      });
+    const modelCtx = { userId: userId.subject, courseId: args.courseId };
+    type ToolExec<TArgs, TResult> = (args: TArgs) => Promise<TResult>;
+  // wrapper to track and log the tool usage
+    function withToolTracing<TArgs extends Record<string, any>, TResult>(
+      name: string,
+      exec: ToolExec<TArgs, TResult>,
+      ph: PostHog,
+      baseProps?: Record<string, any>
+    ): ToolExec<TArgs, TResult> {
+      return async (args: TArgs) => {
+        const start = Date.now();
+        // minimally capture; redact if arguments may contain PII
+        const common = { tool_name: name, ...baseProps, tool_args: args };
+        try {
+          // Mark tool-start span
+          ph.capture({
+            distinctId: baseProps?.posthogDistinctId ?? 'anonymous',
+            event: '$ai_tool_start',
+            properties: { ...common },
+          });
 
+          const result = await exec(args);
 
+          ph.capture({
+            distinctId: baseProps?.posthogDistinctId ?? 'anonymous',
+            event: '$ai_tool_end',
+            properties: {
+              ...common,
+              duration_ms: Date.now() - start,
+              tool_success: true,
+              // optional: size hints
+              tool_result_type: typeof result,
+            },
+          });
 
+          return result;
+        } catch (err: any) {
+          ph.capture({
+            distinctId: baseProps?.posthogDistinctId ?? 'anonymous',
+            event: '$ai_tool_error',
+            properties: {
+              ...common,
+              duration_ms: Date.now() - start,
+              tool_success: false,
+              error_message: err?.message ?? 'Unknown error',
+              error_name: err?.name,
+            },
+          });
+          throw err;
+        }
+      };
+    }
 
+    const runId = crypto.randomUUID();
+    const baseProps = {
+      posthogDistinctId: modelCtx.userId,
+      course_id: modelCtx.courseId,
+      run_id: runId,
+      source: 'sphereai-agent',
+    };
 
     // Environment variables for external services
     const CX = process.env.GOOGLE_CX;
@@ -115,16 +184,15 @@ export const agent = action({
     // Define tools using Vercel AI SDK - Fixed inputSchema to parameters
     const getSyllabusTools = tool({
       description: 'Get the syllabus for a course or subject',
-      inputSchema:z.object({
+      inputSchema: z.object({
         query: z.string().min(2).describe('The subject to get syllabus for'),
       }),
-
-      execute:  async ({ query }) => {
+      execute: withToolTracing('getSyllabusTools', async ({ query }) => {
         console.log('Getting syllabus for:', query);
 
         // Use OpenRouter with structured output
         const result = await generateObject({
-          model: openrouter('openai/gpt-oss-20b:free'),
+          model: tracedModel('openai/gpt-oss-20b:free',modelCtx),
           system:`Your role is to generate a detailed and structured syllabus in strict compliance with the provided schema.
 
 
@@ -162,11 +230,12 @@ export const agent = action({
           - Return only a valid JSON object matching the schema.
           - Do not include explanations, headings, or text outside the JSON.`,
           schema: GetSyllabusSchema,
-          prompt:`${query}`,
+          prompt: ` ${query}`,
         });
 
         return JSON.stringify(result.object);
       },
+       phClient, baseProps),
     });
 
     const webSearchTools = tool({
@@ -174,7 +243,7 @@ export const agent = action({
       inputSchema: z.object({
         query: z.string().min(2).describe('Query to search for'),
       }),
-      execute: async ({ query })=> {
+      execute:withToolTracing('webSearchTools', async ({ query })=> {
         console.log('Web searching for:', query);
 
         if (!EXA_API_KEY) {
@@ -204,7 +273,7 @@ export const agent = action({
             message: error instanceof Error ? error.message : 'Unknown error',
           });
         }
-      },
+      },phClient, baseProps),
     });
 
     const knowledgeSearchTools = tool({
@@ -212,10 +281,10 @@ export const agent = action({
       inputSchema: z.object({
         query: z.string().min(2).describe('Query to search knowledge base'),
       }),
-      execute:  async ({ query })=> {
+      execute: withToolTracing('knowledgeSearchTools', async ({ query })=> {
         console.log('Knowledge searching for:', query);
         const result = await generateText({
-          model: openrouter('openai/gpt-oss-20b:free'),
+          model: tracedModel('openai/gpt-oss-20b:free',modelCtx),
           system:`You are an intelligent knowledge retrieval assistant.
           Your role is to search the knowledge base and return the most relevant, accurate, and useful information in direct, clear, and well-structured text form.
 
@@ -264,7 +333,7 @@ export const agent = action({
         });
 
         return result.text;
-      },
+      },phClient, baseProps),
     });
 
     const getCodeTools = tool({
@@ -273,11 +342,11 @@ export const agent = action({
         query: z.string().min(2).describe('Programming topic to get code for'),
         language: z.string().min(1).describe('Programming language'),
       }),
-      execute:  async ({ query, language })=> {
+      execute: withToolTracing('getCodeTools', async ({ query, language })=> {
         console.log('Getting code for:', query, 'in', language);
 
         const result = await generateObject({
-          model: openrouter('openai/gpt-oss-20b:free'),
+          model: tracedModel('openai/gpt-oss-20b:free',modelCtx),
           system:`You are a world-class programming tutor and code generator. Your task is to create correct, runnable code
           examples for the given topic and language, along with a clear explanation.
           Your output must strictly match the provided schema.
@@ -319,7 +388,7 @@ export const agent = action({
         });
 
         return JSON.stringify(result.object);
-      },
+      },phClient, baseProps),
     });
 
     const testTools = tool({
@@ -328,12 +397,11 @@ export const agent = action({
         topic: z.string().min(1).describe('Topic for test questions'),
         no: z.number().min(1).max(10).describe('Number of questions'),
       }),
-      outputSchema:TestQuestionSchema,
-      execute:  async ({ topic, no })  => {
+      execute: withToolTracing('testTools', async ({ topic, no })  => {
         console.log('Generating test for:', topic, 'with', no, 'questions');
 
         const result = await generateObject({
-          model: openrouter('openai/gpt-oss-20b:free'),
+          model: tracedModel('openai/gpt-oss-20b:free',modelCtx),
           schema: TestQuestionSchema,
           system: `You are a world-class test generator. Your role is to create high-quality multiple-choice test questions
           that help students prepare effectively for exams. The questions must strictly match the provided schema.
@@ -373,7 +441,7 @@ export const agent = action({
         });
 
         return result.object;
-      },
+      },phClient, baseProps),
     });
 
     const svgTool = tool({
@@ -382,9 +450,9 @@ export const agent = action({
       inputSchema: z.object({
         Query: z.string(),
       }),
-      execute: async ({ Query }) => {
+      execute: withToolTracing('svgTool', async ({ Query }) => {
         const result = await generateObject({
-          model: openrouter('openai/gpt-oss-20b:free'),
+          model: tracedModel('openai/gpt-oss-20b:free',modelCtx),
           schema: SvgGenerationSchema,
           system: `Your role is to generate clean, minimalist, and visually appealing SVG code based on the provided prompt or description.
 
@@ -415,7 +483,7 @@ export const agent = action({
           prompt: `${Query}`,
         });
         return result.object;
-      },
+      },phClient, baseProps),
     });
 
     const flashcardsTools = tool({
@@ -424,11 +492,11 @@ export const agent = action({
         query: z.string().min(2).describe('Topic for flashcards'),
         no: z.number().min(1).max(3).describe('Number of flashcards'),
       }),
-      execute:  async ({ query, no }) => {
+      execute: withToolTracing('flashcardsTools', async ({ query, no }) => {
         console.log('Creating flashcards for:', query, 'count:', no);
 
         const result = await generateObject({
-          model: openrouter('openai/gpt-oss-20b:free'),
+          model: tracedModel('openai/gpt-oss-20b:free',modelCtx),
           system:`Your role is to create clear, accurate, and engaging flashcards for studying a given topic.
           The flashcards must help the student actively recall and understand key concepts.
           Your output must strictly match the provided FlashcardSchema.
@@ -471,7 +539,7 @@ export const agent = action({
         });
 
         return JSON.stringify(result.object);
-      },
+      },phClient, baseProps),
     });
 
 
@@ -495,7 +563,7 @@ export const agent = action({
       try {
         // Use generateText with tools, then parse the result
         const answer = await generateText({
-          model: openrouter('google/gemini-2.5-pro'),
+          model: tracedModel('google/gemini-2.5-pro',modelCtx),
           system: `You are SphereAI — an advanced, structured educational content generator.
           Your mission is to produce a comprehensive, multi-slide learning module for any topic a student requests, by orchestrating your available tools in a logical sequence to create an engaging, easy-to-follow learning experience.
 
@@ -664,7 +732,7 @@ export const agent = action({
         console.log('########################################################');
 
         const result = await generateObject({
-          model: openrouter('openai/gpt-oss-20b:free'),
+          model: tracedModel('openai/gpt-oss-20b:free',modelCtx),
           schema: AgentOutputSchema,
           prompt: `format the following information into the valid schema that we have provided ${answer.text} `,
           system: `"Convert all provided information into the specified valid schema.
@@ -676,7 +744,16 @@ export const agent = action({
 
         const parsed = AgentOutputSchema.safeParse(result.object);
         if (!parsed.success) {
-
+          phClient.capture({
+                    distinctId: modelCtx.userId,
+                    event: '$ai_validation_error',
+                    properties: {
+                      course_id: args.courseId,
+                      run_id: runId,
+                      stage_title: stage.title,
+                      issues: JSON.stringify(parsed.error.issues),
+                    },
+                  });
           console.error('Invalid structured output:', parsed.error.format());
           console.log(
             '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@'
@@ -705,11 +782,21 @@ export const agent = action({
         });
         stageIds.push(stageId);
       } catch (error) {
-
+        phClient.capture({
+                distinctId: modelCtx.userId,
+                event: '$ai_stage_error',
+                properties: {
+                  course_id: args.courseId,
+                  run_id: runId,
+                  stage_title: stage.title,
+                  error_message: error instanceof Error ? error.message : String(error),
+                  error_name: error instanceof Error ? error.name : 'UnknownError',
+                },
+              });
         console.error('Agent processing error:', error);
       }
     }
-
+ await phClient.shutdown()
     return stageIds;
   },
 });
