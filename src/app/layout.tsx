@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono,Instrument_Serif } from "next/font/google";
 import { ClerkProvider } from '@clerk/nextjs'
 import ConvexClientProvider from '../components/ConvexClientProvider';
+import { PHProvider } from './providers';
+import PostHogPageView from './PostHogPageView';
+import { Suspense } from 'react';
 import "./globals.css";
 
 
@@ -38,9 +41,16 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${serif.variable} antialiased`}
       >
-                <ClerkProvider>
-                  <ConvexClientProvider>{children}</ConvexClientProvider>
-                </ClerkProvider>
+        <PHProvider>
+          <ClerkProvider>
+            <ConvexClientProvider>
+              <Suspense>
+                <PostHogPageView />
+              </Suspense>
+              {children}
+            </ConvexClientProvider>
+          </ClerkProvider>
+        </PHProvider>
       </body>
     </html>
   );

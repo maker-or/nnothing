@@ -19,6 +19,7 @@ import type * as emails_verifyOTP from "../emails/verifyOTP.js";
 import type * as message from "../message.js";
 import type * as resumable from "../resumable.js";
 import type * as stage from "../stage.js";
+import type * as users from "../users.js";
 
 import type {
   ApiFromModules,
@@ -46,6 +47,7 @@ declare const fullApi: ApiFromModules<{
   message: typeof message;
   resumable: typeof resumable;
   stage: typeof stage;
+  users: typeof users;
 }>;
 declare const fullApiWithMounts: typeof fullApi;
 
