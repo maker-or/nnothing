@@ -4,7 +4,7 @@ import { useQuery } from "convex/react";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { use } from "react";
-import StageInfo from "../../../../components/StageInfo";
+import StageInfo from "../../../../../components/StageInfo";
 import { api } from "../../../../../../convex/_generated/api";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
 

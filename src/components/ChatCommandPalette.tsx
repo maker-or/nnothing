@@ -3,8 +3,8 @@ import { useQuery } from "convex/react";
 import { formatDistanceToNow } from "date-fns";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useRef, useState } from "react";
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import { useConvexAuth } from "convex/react";
 
 interface ChatCommandPaletteProps {
@@ -263,7 +263,7 @@ const ChatCommandPalette = ({ isOpen, onClose }: ChatCommandPaletteProps) => {
                             </p>
                             <p className="text-sm text-white/60">
                               {currentMode === "chat" && isChat(item)
-                                ? `${item.model?.split("/").pop() || "Unknown model"} • ${formatDate(item.updatedAt)}`
+                                ? ` ${formatDate(item.updatedAt)}`
                                 : currentMode === "learn" && isCourse(item)
                                   ? `${item.stages?.length || 0} stages • ${formatDate(item.createdAt)}`
                                   : "Unknown details"}

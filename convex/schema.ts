@@ -1,4 +1,5 @@
 import { defineSchema, defineTable } from 'convex/server';
+import { StreamIdValidator } from "@convex-dev/persistent-text-streaming";
 import { v } from 'convex/values';
 
 // Better Auth schema is handled by the component
@@ -13,6 +14,7 @@ const applicationTables = {
     shareId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
+
     pinned: v.boolean(),
   })
     .index('by_user', ['userId'])

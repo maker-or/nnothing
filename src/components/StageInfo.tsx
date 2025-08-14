@@ -8,7 +8,7 @@ import {
   XCircleIcon,
 } from "@phosphor-icons/react";
 // Import Convex types
-import type { Doc } from "../../../convex/_generated/dataModel";
+import type { Doc } from "../../convex/_generated/dataModel";
 import { CheckCircle2, Circle, CircleDotDashed } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { Components } from "react-markdown";

@@ -4,7 +4,7 @@ import { useQuery } from 'convex/react';
 import { useRouter } from 'next/navigation';
 import React, { useState, useMemo } from 'react';
 import { api } from '../../../../convex/_generated/api';
-import { Button } from '../../components/ui/button';
+import { Button } from '../../../components/ui/button';
 
 const LibraryPage = () => {
   const router = useRouter();

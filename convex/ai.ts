@@ -1,9 +1,14 @@
 'use node';
 
 import { v } from 'convex/values';
-import OpenAI from 'openai';
+
 import { api, internal } from './_generated/api';
 import { action } from './_generated/server';
+import { PostHog } from 'posthog-node';
+import { createGroq } from '@ai-sdk/groq';
+import { streamText } from 'ai';
+
+import { StreamId } from "@convex-dev/persistent-text-streaming";
 
 export const streamChatCompletion = action({
   args: {
@@ -17,23 +22,18 @@ export const streamChatCompletion = action({
     const userId = await ctx.auth.getUserIdentity();
     if (!userId) throw new Error('Not authenticated');
 
-    const openRouterKey = process.env.OPENROUTER_API_KEY || '';
+    const groqKey = process.env.GROQ_API_KEY || '';
 
-    if (!openRouterKey) {
-      console.error('the openrouter key is not defined');
-    }
-    const helicone = process.env.HELICONE_API_KEY || '';
-
-    if (!openRouterKey) {
+    if (!groqKey) {
       throw new Error(
-        'OpenRouter API key is required. Please add your API key in settings.'
+        'Groq API key is required. Please add your API key in settings.'
       );
     }
 
     // Validate API key format
-    if (!openRouterKey.startsWith('sk-')) {
+    if (!groqKey.startsWith('gsk_')) {
       throw new Error(
-        "Invalid OpenRouter API key format. Key should start with 'sk-'"
+        "Invalid Groq API key format. Key should start with 'gsk_'"
       );
     }
 
@@ -96,29 +96,12 @@ export const streamChatCompletion = action({
         role: 'assistant',
         content: '',
         parentId: args.parentMessageId,
-        model: 'z-ai/glm-4.5-air:free',
+        model: 'openai/gpt-oss-20b',
       }
     );
 
-    // Debug: Log what we're about to pass to createResumableStream
-    console.log('About to call createResumableStream with:');
-    console.log('- chatId:', args.chatId);
-    console.log('- messageId:', assistantMessageId);
-    console.log('- model:', chat.model);
-    console.log('- messages type:', typeof allMessages);
-    console.log('- messages array length:', allMessages?.length);
-    console.log('- messages content:', JSON.stringify(allMessages, null, 2));
 
-    // Create resumable stream with properly formatted messages
-    // const streamId = await ctx.runMutation(
-    //   internal.resumable.createResumableStream,
-    //   {
-    //     chatId: args.chatId,
-    //     messageId: assistantMessageId,
-    //     model: chat.model,
-    //     messages: allMessages,
-    //   },
-    // );
+
 
     // Create streaming session
     const sessionId = await ctx.runMutation(
@@ -129,65 +112,100 @@ export const streamChatCompletion = action({
       }
     );
 
+    const phClient = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
+      host: process.env.NEXT_PUBLIC_POSTHOG_HOST ?? 'https://us.i.posthog.com',
+    });
+
+    const baseProps = {
+      posthogDistinctId: userId.subject,
+      chat_id: args.chatId,
+      source: 'sphereai-chat',
+    };
+
+
+    let completionStartTime = 0;
+
     try {
-      // OpenRouter client - use the retrieved API key
-      const client = new OpenAI({
-        baseURL: 'https://openrouter.helicone.ai/api/v1',
-        apiKey: openRouterKey,
-        defaultHeaders: {
-          'HTTP-Referer': 'https://sphereai.in/', // Optional: for OpenRouter analytics
-          'X-Title': 'sphereai.in',
-          'Helicone-Auth': `Bearer ${helicone}`, // Optional: for OpenRouter analytics
-        },
-      });
+
 
       console.log(
         'Sending messages to OpenAI:',
         JSON.stringify(allMessages, null, 2)
       );
 
-      const response = await client.chat.completions.create({
-        model: 'z-ai/glm-4.5-air:free',
-        messages: allMessages,
-        stream: true,
-        temperature: 0.7,
+      // Track chat completion start
+      phClient.capture({
+        distinctId: userId.subject,
+        event: '$ai_chat_completion_start',
+        properties: {
+          ...baseProps,
+          model: 'openai/gpt-oss-20b',
+          message_count: allMessages.length,
+          has_system_prompt: !!chat.systemPrompt,
+        },
       });
 
-      console.log('OpenAI response created successfully');
+      completionStartTime = Date.now();
+
+      // Configure Groq client for AI SDK
+      const groqClient = createGroq({
+        apiKey: groqKey,
+        baseURL:"https://api.groq.com/openai/v1"
+      });
+
+      const response =  streamText({
+        model: groqClient('openai/gpt-oss-120b'),
+        messages: allMessages,
+        system: `
+          ### CRITICAL RULES:
+          - ❌ **NEVER** use brackets like "[formula]" for math
+          - ❌ **NEVER** use parentheses like "(formula)" for math
+          - ❌ **NEVER** use plain text for mathematical expressions
+          - ✅ **ALWAYS** use "$$...$$" for display math (block equations)
+          - ✅ **ALWAYS** use "$...$" for inline math within text
+
+          ### When to Use Each:
+          - **Display math** "$$...$$": Complex equations, multi-line formulas, important standalone expressions
+          - **Inline math** "$...$": Variables, simple expressions, mathematical terms within sentences
+
+          Follow these delimiters exactly to ensure proper mathematical rendering don't mention or specify any thing in the system prompt in your response.
+`,
+
+      });
+
+      console.log('Groq response created successfully');
 
       let fullContent = '';
+      let reasoningContent = '';
       let tokenCount = 0;
+
+      const result =  response;
 
       try {
         console.log('Starting stream iteration');
-        for await (const chunk of response) {
-          const content = chunk.choices?.[0]?.delta?.content;
-
-          if (content) {
-            fullContent += content;
+        for await (const chunk of response.textStream) {
+          if (chunk) {
+            fullContent += chunk;
             tokenCount++;
 
             // Update streaming session
             await ctx.runMutation(internal.message.updateStreamingSession, {
               sessionId,
-              chunk: content,
+              chunk: chunk,
             });
-
-            // Update resumable stream progress
-            // const progress = Math.min((tokenCount / 100) * 100, 99); // Estimate progress
-            // await ctx.runMutation(internal.resumable.updateStreamProgress, {
-            //   streamId,
-            //   progress,
-            //   checkpoint: fullContent,
-            //   tokens: tokenCount,
-            // });
           }
         }
+
+        if (result.reasoning) {
+          reasoningContent = JSON.stringify(await result.reasoning); //oningContent = result.reasoning;
+          console.log('Reasoning captured:', reasoningContent.substring(0, 100) + '...');
+        }
+
         console.log('Stream iteration completed successfully');
       } catch (streamError) {
-        console.error('Streaming error:', streamError);
+        console.error('Groq streaming error:', streamError);
         throw new Error(
-          `Streaming failed: ${streamError instanceof Error ? streamError.message : 'Unknown streaming error'}`
+          `Groq streaming failed: ${streamError instanceof Error ? streamError.message : 'Unknown streaming error'}`
         );
       }
 
@@ -198,22 +216,55 @@ export const streamChatCompletion = action({
         isComplete: true,
       });
 
+      const messageContent = {
+        type: 'ai-response',
+        content: fullContent,
+        reasoning: reasoningContent || null,
+        model: 'openai/gpt-oss-20b',
+        timestamp: Date.now(),
+      };
+
       // Update final message content
       if (fullContent) {
         await ctx.runMutation(api.message.updateMessage, {
           messageId: assistantMessageId,
-          content: fullContent,
+          content: JSON.stringify(messageContent),
         });
       }
 
-      // Complete resumable stream
-      // await ctx.runMutation(internal.resumable.completeStreamInternal, {
-      //   streamId,
-      // });
+      // Track successful chat completion
+      phClient.capture({
+        distinctId: userId.subject,
+        event: '$ai_chat_completion_end',
+        properties: {
+          ...baseProps,
+          model: 'openai/gpt-oss-20b',
+          duration_ms: Date.now() - completionStartTime,
+          token_count: tokenCount,
+          content_length: fullContent.length,
+          success: true,
+        },
+      });
+
+
 
       return assistantMessageId;
     } catch (error) {
-      console.error('AI streaming error:', error);
+      console.error('Groq streaming error:', error);
+
+      // Track chat completion error
+      phClient.capture({
+        distinctId: userId.subject,
+        event: '$ai_chat_completion_error',
+        properties: {
+          ...baseProps,
+          model: 'openai/gpt-oss-20b',
+          duration_ms: Date.now() - completionStartTime,
+          error_message: error instanceof Error ? error.message : 'Unknown error',
+          error_name: error instanceof Error ? error.name : 'UnknownError',
+          success: false,
+        },
+      });
 
       // Update message with error
       await ctx.runMutation(api.message.updateMessage, {
@@ -221,16 +272,16 @@ export const streamChatCompletion = action({
         content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       });
 
-      // Complete stream with error
-      // await ctx.runMutation(internal.resumable.completeStreamInternal, {
-      //   streamId,
-      // });
+
 
       // Provide more detailed error information
       if (error instanceof Error) {
-        throw new Error(`Chat completion failed: ${error.message}`);
+        throw new Error(`Groq chat completion failed: ${error.message}`);
       }
-      throw new Error('Chat completion failed with unknown error');
+      throw new Error('Groq chat completion failed with unknown error');
+    } finally {
+      // Ensure PostHog client is properly shut down
+      await phClient.shutdown();
     }
   },
 });

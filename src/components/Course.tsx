@@ -1,9 +1,9 @@
 "use client";
 import { useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
-import CourseCanvas from "../../app/components/CourseCanvas"
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import CourseCanvas from "../components/CourseCanvas"
+import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import { useConvexAuth } from "convex/react";
 
 interface CourseProps {

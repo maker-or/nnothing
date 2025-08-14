@@ -4,8 +4,8 @@ import { ArrowClockwiseIcon, ArrowUpIcon } from '@phosphor-icons/react';
 import { useForm } from '@tanstack/react-form';
 import React, { useEffect, useState } from 'react';
 import { z } from 'zod';
-import { api } from '../../../convex/_generated/api';
-import { Button } from './ui/button';
+import { api } from '../../convex/_generated/api';
+import { Button } from "../components/ui/button"
 import ChatCommandPalette from '../components/ChatCommandPalette';
 import { useConvexAuth } from "convex/react";
 
@@ -24,7 +24,7 @@ type FormValues = z.infer<typeof zschema>;
 
 // Enhanced Content Block Component
 
-import { useAuthAction, useAuthMutation } from '../../hooks/useAuthMutation';
+import { useAuthAction, useAuthMutation } from '../hooks/useAuthMutation';
 
 const AiHome = () => {
   const navigate = useRouter();

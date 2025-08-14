@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Button } from '../components/ui/button';
+import { Button } from '../../components/ui/button';
 import { useConvexAuth } from "convex/react";
 import { useSignIn } from '@clerk/nextjs';
 

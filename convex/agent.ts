@@ -22,6 +22,8 @@ export const agent = action({
       courseId: args.courseId,
     });
 
+      const helicone = process.env.HELICONE_API_KEY || '';
+
     console.log('Agent received message sucessfully from the backend', course);
 
     // Get API key from environment
@@ -38,14 +40,19 @@ export const agent = action({
       );
     }
 
-    const phClient = new PostHog(process.env.POSTHOG_KEY!, {
-      host: process.env.POSTHOG_HOST ?? 'https://us.i.posthog.com',
+    const phClient = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
+      host: process.env.NEXT_PUBLIC_POSTHOG_HOST ?? 'https://us.i.posthog.com',
     });
 
     // Create OpenRouter client
     const openrouter = createOpenAI({
-      baseURL: 'https://openrouter.ai/api/v1',
+      baseURL: 'https://openrouter.helicone.ai/api/v1',
       apiKey: openRouterKey,
+      headers: {
+        'HTTP-Referer': 'https://sphereai.in/', // Optional: for OpenRouter analytics
+        'X-Title': 'sphereai.in',
+        'Helicone-Auth': `Bearer ${helicone}`, // Optional: for OpenRouter analytics
+      },
     });
 
     const tracedModel = (modelName: string, ctx: { userId: string; courseId: string }) =>

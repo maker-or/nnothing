@@ -1,19 +1,51 @@
 "use client";
-
 import {
   ArrowClockwiseIcon,
   ArrowLeftIcon,
   ArrowUpIcon,
 } from "@phosphor-icons/react";
 import { useForm } from "@tanstack/react-form";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "../../convex/_generated/dataModel";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useParams, useRouter } from "next/navigation";
 import React, { useEffect, useRef, useState } from "react";
 import { z } from "zod";
-import ChatCommandPalette from "../../app/components/ChatCommandPalette";
-import { api } from "../../../convex/_generated/api";
+import ChatCommandPalette from "../components/ChatCommandPalette";
+import { api } from "../../convex/_generated/api";
 import { useConvexAuth } from "convex/react";
+import { Response } from '@/components/ai-elements/response';
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from '@/components/ai-elements/reasoning';
+
+// Helper function to parse message content and extract reasoning
+const parseMessageContent = (content: string | string[]) => {
+  if (Array.isArray(content)) {
+    content = content.join('');
+  }
+
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed.type === 'ai-response') {
+      return {
+        isStructured: true,
+        content: parsed.content,
+        reasoning: parsed.reasoning,
+        model: parsed.model,
+      };
+    }
+  } catch (e) {
+    // Not structured JSON, treat as plain text
+  }
+
+  return {
+    isStructured: false,
+    content: content,
+    reasoning: null,
+  };
+};
 
 const messageSchema = z.object({
   message: z.string().trim().min(1, { message: "Message cannot be empty" }),
@@ -22,11 +54,12 @@ const messageSchema = z.object({
 type MessageFormValues = z.infer<typeof messageSchema>;
 
 const Chatting = () => {
-  const { isAuthenticated,isLoading} = useConvexAuth();
+  const { isAuthenticated, isLoading } = useConvexAuth();
   const { chat: chatID } = useParams<{ chat: string }>();
   const router = useRouter();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showChatPalette, setShowChatPalette] = useState(false);
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const convexChatId = chatID as Id<"chats">;
 
   // Convex hooks - only query if we have a valid chatId
@@ -34,7 +67,6 @@ const Chatting = () => {
     api.chats.getChat,
     chatID ? { chatId: convexChatId } : "skip",
   );
-
   const messages = useQuery(
     api.message.getMessages,
     chatID ? { chatId: convexChatId } : "skip",
@@ -51,7 +83,6 @@ const Chatting = () => {
     } as MessageFormValues,
     onSubmit: async ({ value }) => {
       if (!chat) return;
-
       try {
         // Add user message
         const userMessageId = await addMessage({
@@ -64,13 +95,20 @@ const Chatting = () => {
         form.reset();
 
         // Stream AI response
-        await streamChatCompletion({
+        const assistantMessageId = await streamChatCompletion({
           chatId: convexChatId,
           messages: value.message,
           parentMessageId: userMessageId,
         });
+
+        // Track streaming for reasoning UI
+        setStreamingMessageId(assistantMessageId);
+
+        // Clear streaming state after a delay (you might want to handle this better)
+        setTimeout(() => setStreamingMessageId(null), 1000);
       } catch (error) {
         console.error("Error sending message:", error);
+        setStreamingMessageId(null);
       }
     },
     validators: {
@@ -88,7 +126,7 @@ const Chatting = () => {
     if (chat && chat.title) {
       document.title = `${chat.title}`;
     } else if (chatID) {
-      document.title = `Learning Session ${chatID} `;
+      document.title = `Learning Session ${chatID}`;
     }
   }, [chat, chatID]);
 
@@ -100,7 +138,6 @@ const Chatting = () => {
         setShowChatPalette(true);
       }
     };
-
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
@@ -111,7 +148,6 @@ const Chatting = () => {
       <div className="relative flex h-[100svh] w-[100svw] items-center justify-center">
         {/* Background */}
         <div className="absolute inset-0 z-0 bg-black" />
-
         {/* Noise overlay */}
         <div
           className="absolute inset-0 z-10 opacity-20"
@@ -121,7 +157,6 @@ const Chatting = () => {
             backgroundSize: "256px 256px",
           }}
         />
-
         <div className="relative z-20 text-center">
           <h1 className="mb-4 font-bold text-2xl text-white">Invalid Chat</h1>
           <p className="mb-4 text-white/70">No chat ID provided</p>
@@ -142,7 +177,6 @@ const Chatting = () => {
       <div className="relative flex h-[100svh] w-[100svw] items-center justify-center">
         {/* Background */}
         <div className="absolute inset-0 z-0 bg-black" />
-
         {/* Noise overlay */}
         <div
           className="absolute inset-0 z-10 opacity-20"
@@ -152,7 +186,6 @@ const Chatting = () => {
             backgroundSize: "256px 256px",
           }}
         />
-
         <div className="relative z-20 text-center">
           <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-white/60 border-b-2" />
           <p className="text-white/80">Loading conversation...</p>
@@ -167,7 +200,6 @@ const Chatting = () => {
       <div className="relative flex h-[100svh] w-[100svw] items-center justify-center">
         {/* Background */}
         <div className="absolute inset-0 z-0 bg-black" />
-
         {/* Noise overlay */}
         <div
           className="absolute inset-0 z-10 opacity-20"
@@ -177,10 +209,9 @@ const Chatting = () => {
             backgroundSize: "256px 256px",
           }}
         />
-
         <div className="relative z-20 text-center">
           <h1 className="mb-4 font-bold text-2xl text-white">Chat Not Found</h1>
-          <p className="mb-4 text-white/70">tey again after some time</p>
+          <p className="mb-4 text-white/70">Try again after some time</p>
           <button
             className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-white transition-colors hover:bg-white/20"
             onClick={() => router.push("/learning")}
@@ -196,7 +227,6 @@ const Chatting = () => {
     <div className="relative flex h-[100svh] w-[100svw] flex-col">
       {/* Background */}
       <div className="absolute inset-0 z-0 bg-black" />
-
       {/* Noise overlay */}
       <div
         className="absolute inset-0 z-10 opacity-20"
@@ -206,14 +236,11 @@ const Chatting = () => {
           backgroundSize: "256px 256px",
         }}
       />
-
       {/* Grid lines */}
       <div className="pointer-events-none absolute inset-0 z-15">
         {/* Vertical lines */}
-        <div className="absolute top-0 left-[20%] h-full w-px bg-white/20" />
-        <div className="absolute top-0 left-[80%] h-full w-px bg-white/20" />
-        {/* Horizontal lines */}
-
+        <div className="absolute top-0 left-[10%] h-full w-px bg-white/20" />
+        <div className="absolute top-0 left-[90%] h-full w-px bg-white/20" />
         {/* Corner circles */}
         <div className="-translate-x-1/2 -translate-y-1/2 absolute top-[9%] left-[20%] h-2 w-2 transform rounded-full bg-white/60" />
         <div className="-translate-x-1/2 -translate-y-1/2 absolute top-[9%] left-[80%] h-2 w-2 transform rounded-full bg-white/60" />
@@ -245,30 +272,57 @@ const Chatting = () => {
         <div className="mx-auto max-w-4xl px-6 py-8">
           <div className="space-y-6">
             {messages && messages.length > 0 ? (
-              messages.map((message, _index) => (
-                <div
-                  className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-                  key={message._id}
-                >
+              messages.map((message, _index) => {
+                const parsedContent = parseMessageContent(message.content);
+
+                return (
                   <div
-                    className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                      message.role === "user"
-                        ? "border border-white/20 bg-white/10 text-white"
-                        : "border border-white/10 bg-white/5 text-white/90"
-                    }`}
+                    className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                    key={message._id}
                   >
-                    <div className="whitespace-pre-wrap text-sm leading-relaxed">
-                      {message.content}
+                    <div
+                      className={`max-w-[80%] rounded-lg px-4 py-3 ${
+                        message.role === "user"
+                          ? "border border-white/20 bg-white/10 text-white"
+                          : "max-w-[100%] text-white/90"
+                      }`}
+                    >
+                      {/* Show reasoning only for assistant messages that have reasoning */}
+                      {message.role === "assistant" && parsedContent.reasoning && (
+                        <Reasoning
+                          className="w-full mb-4"
+                          isStreaming={streamingMessageId === message._id}
+                        >
+                          <ReasoningTrigger title="AI Reasoning" />
+                          <ReasoningContent className="whitespace-pre-wrap text-sm leading-relaxed text-white/70 bg-white/5 rounded-md p-3 border border-white/10">
+                            {parsedContent.reasoning}
+                          </ReasoningContent>
+
+                        </Reasoning>
+                      )}
+
+                      {/* Main message content */}
+                      <div className="whitespace-pre-wrap text-sm leading-relaxed">
+                        <Response>
+                          {parsedContent.content}
+                        </Response>
+                      </div>
+
+                      {/* Optional: Show model info for structured messages */}
+                      {parsedContent.isStructured && parsedContent.model && (
+                        <div className="mt-2 text-xs text-white/40">
+                          Generated by {parsedContent.model}
+                        </div>
+                      )}
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             ) : (
               <div className="py-12 text-center text-white/40">
                 <p>No messages yet. Start the conversation!</p>
               </div>
             )}
-
             {/* Scroll anchor */}
             <div ref={messagesEndRef} />
           </div>
@@ -313,7 +367,6 @@ const Chatting = () => {
                       }}
                       value={state.value}
                     />
-
                     {/* Error message */}
                     {state.meta.errors.length > 0 && (
                       <div className="-bottom-6 absolute left-0 text-red-400 text-xs">
@@ -324,7 +377,6 @@ const Chatting = () => {
                 )}
               </form.Field>
             </div>
-
             <form.Subscribe
               selector={(state) => [state.canSubmit, state.isSubmitting]}
             >

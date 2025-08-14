@@ -1,5 +1,5 @@
 import { use } from "react";
-import Course from "../../../components/Course";
+import Course from "../../../../components/Course";
 
 const Page = ({
   params,

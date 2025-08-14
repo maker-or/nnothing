@@ -4,8 +4,8 @@ import { useQuery } from "convex/react";
 import { ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type React from "react";
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import { api } from "../../convex/_generated/api"
+import type { Id } from "../../convex/_generated/dataModel";
 
 // Stage interface matching the schema
 interface Stage {

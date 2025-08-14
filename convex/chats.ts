@@ -1,5 +1,12 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
+import { StreamId,PersistentTextStreaming } from "@convex-dev/persistent-text-streaming";
+import { components } from "./_generated/api";
+
+
+const persistentTextStreaming = new PersistentTextStreaming(
+  components.persistentTextStreaming
+);
 
 export const listChats = query({
   args: {},
@@ -63,7 +70,7 @@ export const createChat = mutation({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error('Not authenticated');
     const userId = identity.subject;
-
+    const responseStreamId = await persistentTextStreaming.createStream(ctx);
     const now = Date.now();
     const chatId = await ctx.db.insert('chats', {
       title: args.title,
@@ -73,6 +80,7 @@ export const createChat = mutation({
       createdAt: now,
       updatedAt: now,
       pinned: false,
+
     });
 
     return chatId;
