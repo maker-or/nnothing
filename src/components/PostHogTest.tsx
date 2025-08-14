@@ -11,6 +11,7 @@ export default function PostHogTest() {
     if (posthog) {
       posthog.capture('test_pageview', {
         page: 'test-page',
+        user_id: user?.id,
         timestamp: new Date().toISOString(),
       })
       alert('Test pageview event sent to PostHog!')
@@ -37,19 +38,22 @@ export default function PostHogTest() {
   const testIdentify = () => {
     if (posthog && isAuthenticated && user && !isLoading) {
       posthog.identify(user.id, {
-        email: user.email,
-        name: user.name,
-        emailVerified: user.emailVerified,
+        email: user.email || '',
+        name: user.name || '',
+        firstName: user.firstName || '',
+        lastName: user.lastName || '',
+        emailVerified: user.emailVerified || false,
         authenticated: true,
         test_identify: true,
+        userImage: user.image || '',
+        clerkId: user.clerkId,
         createdAt: user.createdAt,
-        userImage: user.image,
       })
       alert('User identified in PostHog!')
     } else if (!posthog) {
       alert('PostHog not initialized!')
     } else if (!isAuthenticated) {
-      alert('User not authenticated!')
+      alert('User not authenticated with Convex!')
     } else if (isLoading) {
       alert('User data still loading!')
     } else if (!user) {
@@ -86,6 +90,7 @@ export default function PostHogTest() {
                 <p>Email: {user.email}</p>
                 <p>Name: {user.name}</p>
                 <p>Email Verified: {user.emailVerified ? '✅' : '❌'}</p>
+                <p>Clerk ID: {user.clerkId}</p>
               </>
             )}
             {isLoading && <p>Loading user data...</p>}

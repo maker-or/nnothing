@@ -8,21 +8,21 @@ export const getCurrentUser = query({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return null;
 
-    // Get user from Better Auth user table
-    const user = await ctx.db
-      .query("user")
-      .filter((q) => q.eq(q.field("email"), identity.email))
-      .first();
-
-    if (!user) return null;
+    // Return user data from Clerk identity
+    const firstName = String(identity.given_name || "");
+    const lastName = String(identity.family_name || "");
+    const fullName = identity.name ? String(identity.name) : (firstName && lastName ? `${firstName} ${lastName}` : firstName || lastName || "User");
 
     return {
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      emailVerified: user.emailVerified,
-      image: user.image,
-      createdAt: user.createdAt,
+      id: String(identity.subject),
+      name: fullName,
+      email: String(identity.email || ""),
+      emailVerified: Boolean(identity.email_verified),
+      image: identity.picture ? String(identity.picture) : null,
+      createdAt: identity.iat ? (identity.iat as number) * 1000 : Date.now(),
+      clerkId: String(identity.subject),
+      firstName,
+      lastName,
     };
   },
 });

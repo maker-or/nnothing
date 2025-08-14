@@ -6,9 +6,9 @@ This document explains how PostHog analytics is integrated into your Next.js app
 
 PostHog is configured to:
 - Track page views automatically
-- Identify users with Convex user data
+- Identify users with user data from Convex (sourced from Clerk identity)
 - Capture custom events
-- Work with your existing Convex + Better Auth setup
+- Work with your existing Convex authentication system
 - Proxy requests through `/ingest` to avoid ad blockers
 
 ## Configuration Files
@@ -24,9 +24,9 @@ NEXT_PUBLIC_POSTHOG_KEY=phc_your_posthog_project_key_here
 
 - **`src/app/providers.tsx`** - PostHog provider with client-side initialization
 - **`instrumentation.ts`** - Server-side PostHog setup
-- **`src/app/PostHogPageView.tsx`** - Automatic pageview tracking + user identification
+- **`src/app/PostHogPageView.tsx`** - Automatic pageview tracking + user identification via Convex
 - **`src/hooks/usePostHogUser.ts`** - Custom hook to get user data from Convex
-- **`convex/users.ts`** - Convex query to fetch current user information
+- **`convex/users.ts`** - Convex query to fetch current user information from Clerk identity
 
 ### 3. Next.js Configuration
 
@@ -55,15 +55,15 @@ async rewrites() {
 
 ### User Authentication Flow
 
-1. **Convex Authentication**: Users authenticate through your existing Convex + Better Auth setup
-2. **User Data Fetching**: `usePostHogUser` hook fetches user details from Convex's `user` table
-3. **PostHog Identification**: When a user is authenticated and user data is loaded, PostHog automatically identifies them with:
-   - User ID (from Convex)
-   - Email address
-   - Display name
-   - Email verification status
-   - Account creation date
-   - Profile image (if available)
+1. **Clerk Authentication**: Users authenticate through Clerk
+2. **Convex Integration**: Clerk identity is passed to Convex for authorization
+3. **PostHog Identification**: When a user is authenticated with Convex, PostHog automatically identifies them with user data extracted from Convex:
+   - User ID (from Clerk identity via Convex)
+   - Email address (from Clerk identity via Convex)
+   - Display name (from Clerk identity via Convex)
+   - Email verification status (from Clerk identity via Convex)
+   - Profile image (from Clerk identity via Convex)
+   - First and last names (from Clerk identity via Convex)
 
 ### Automatic Tracking
 
@@ -175,7 +175,7 @@ PostHog is configured to respect user privacy:
 We collect:
 - Page views and navigation patterns
 - User interactions (button clicks, form submissions)
-- User account information (email, name, verification status)
+- User account information via Convex (email, name, verification status, profile image sourced from Clerk)
 - Session information
 - Custom events you define
 
@@ -194,20 +194,23 @@ We collect:
    - Check for console errors
 
 3. **User identification not working**
-   - Ensure user is authenticated with Convex
-   - Check that `convex/users.ts` query is working
-   - Verify user data is being fetched correctly
+   - Ensure user is authenticated with Convex (`isAuthenticated` is true)
+   - Check that user data is available via `usePostHogUser` hook
+   - Verify `convex/users.ts` query is working correctly
+   - Ensure Clerk identity is properly passed to Convex
 
 4. **TypeScript errors**
-   - Make sure all PostHog dependencies are installed
+   - Make sure all PostHog and Convex dependencies are installed
    - Check that `usePostHogUser` hook is imported correctly
+   - Verify Convex hooks are imported from `convex/react`
 
 ### Debug Checklist
 
 - [ ] PostHog key is set in environment variables
 - [ ] User can access `/debug-posthog` page
 - [ ] Network requests to `/ingest/` are successful
-- [ ] User authentication with Convex is working
+- [ ] User authentication with Convex is working (`isAuthenticated` is true)
+- [ ] User data is available via `usePostHogUser` hook
 - [ ] Events appear in PostHog dashboard
 - [ ] User identification is working in PostHog "Persons" tab
 
@@ -216,11 +219,11 @@ We collect:
 This PostHog setup is designed to work seamlessly with your existing:
 
 - **Convex authentication** - Uses `useConvexAuth()` for auth state
-- **Better Auth user system** - Fetches user data from Convex `user` table
-- **Clerk integration** - Works alongside your Clerk setup
+- **Convex user data** - Uses `usePostHogUser()` to get user data from Convex
 - **Custom auth hooks** - Compatible with `useAuthMutation` and `useAuthAction`
+- **Clerk integration** - User data is sourced from Clerk identity via Convex queries
 
-The integration automatically handles the transition from your current Clerk-based user identification to the new Better Auth system.
+The integration uses Convex as the single source of truth for user data and authentication state, with user information originally sourced from Clerk but accessed only through Convex.
 
 ## Security Notes
 

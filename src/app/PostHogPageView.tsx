@@ -31,14 +31,17 @@ export default function PostHogPageView(): null {
   useEffect(() => {
     // 👉 Check the sign-in status and identify the user if they aren't already
     if (posthog && isAuthenticated && user && !isLoading && !posthog._isIdentified()) {
-      // 👉 Identify the user with Convex user data
+      // 👉 Identify the user with Convex user data (from Clerk identity)
       posthog.identify(user.id, {
-        email: user.email,
-        name: user.name,
-        emailVerified: user.emailVerified,
+        email: user.email || '',
+        name: user.name || '',
+        firstName: user.firstName || '',
+        lastName: user.lastName || '',
+        emailVerified: user.emailVerified || false,
         createdAt: user.createdAt,
         authenticated: true,
-        userImage: user.image,
+        userImage: user.image || '',
+        clerkId: user.clerkId,
       })
     }
   }, [posthog, isAuthenticated, user, isLoading])
