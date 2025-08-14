@@ -18,6 +18,41 @@ const CodeBlockContext = createContext<CodeBlockContextType>({
   code: '',
 });
 
+const PRETTY_LANGUAGE: Record<string, string> = {
+  js: 'JavaScript',
+  javascript: 'JavaScript',
+  ts: 'TypeScript',
+  tsx: 'TypeScript',
+  typescript: 'TypeScript',
+  py: 'Python',
+  python: 'Python',
+  sh: 'Shell',
+  bash: 'Shell',
+  zsh: 'Shell',
+  md: 'Markdown',
+  markdown: 'Markdown',
+  html: 'HTML',
+  css: 'CSS',
+  scss: 'SCSS',
+  json: 'JSON',
+  yml: 'YAML',
+  yaml: 'YAML',
+  go: 'Go',
+  rs: 'Rust',
+  rb: 'Ruby',
+  php: 'PHP',
+  java: 'Java',
+  csharp: 'C#',
+  cs: 'C#',
+  cpp: 'C++',
+  c: 'C',
+  swift: 'Swift',
+  kotlin: 'Kotlin',
+};
+const prettyLanguage = (lang: string) =>
+  PRETTY_LANGUAGE[lang.toLowerCase()] ??
+  (lang.slice(0, 1).toUpperCase() + lang.slice(1));
+
 export type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
   code: string;
   language: string;
@@ -36,68 +71,64 @@ export const CodeBlock = ({
   <CodeBlockContext.Provider value={{ code }}>
     <div
       className={cn(
-        'relative w-full overflow-hidden rounded-md border border-gray-950 bg-black text-gray-100',
+        'relative w-full overflow-hidden rounded-xl border-4 border-[#252525] bg-[#252525] text-gray-100',
         className,
       )}
       {...props}
     >
-      <div className="relative">
-        <SyntaxHighlighter
-          language={language}
-          style={oneLight}
-          customStyle={{
-            margin: 0,
-            padding: '1rem',
-            fontSize: '0.875rem',
-            background: '#000000',
-            color: '#f1f5f9',
-          }}
-          showLineNumbers={showLineNumbers}
-          lineNumberStyle={{
-            color: '#6b7280',
-            paddingRight: '1rem',
-            minWidth: '2.5rem',
-          }}
-          codeTagProps={{
-            className: 'font-mono text-sm',
-          }}
-          className="dark:hidden overflow-hidden"
-        >
-          {code}
-        </SyntaxHighlighter>
-        <SyntaxHighlighter
-          language={language}
-          style={oneDark}
-          customStyle={{
-            margin: 0,
-            padding: '1rem',
-            fontSize: '0.875rem',
-            background: '#000000',
-            color: '#f1f5f9',
-          }}
-          showLineNumbers={showLineNumbers}
-          lineNumberStyle={{
-            color: '#6b7280',
-            paddingRight: '1rem',
-            minWidth: '2.5rem',
-          }}
-          codeTagProps={{
-            className: 'font-mono text-sm',
-          }}
-          className="hidden dark:block overflow-hidden"
-        >
-          {code}
-        </SyntaxHighlighter>
-        <div className="absolute left-2 top-2">
-          <span className="px-2 py-1 text-xs font-mono bg-gray-800 text-gray-300 rounded border border-gray-700">
-            {language}
-          </span>
+      <div className="flex flex-col">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[#252525] bg-[#161718]">
+          <span className="font-semibold tracking-wide text-gray-200 text-lg">{prettyLanguage(language)}</span>
+          {children ? <div className="flex items-center gap-2">{children}</div> : null}
         </div>
-        {children && (
-          <div className="absolute right-2 top-2 flex items-center gap-2">
-            {children}
-          </div>
-        )}
+        <div className="relative">
+          <SyntaxHighlighter
+            language={language}
+            style={oneLight}
+            customStyle={{
+              margin: 0,
+              padding: '1rem',
+              fontSize: '0.875rem',
+              background: 'transparent',
+              color: '#f1f5f9',
+            }}
+            showLineNumbers={showLineNumbers}
+            lineNumberStyle={{
+              color: '#6b7280',
+              paddingRight: '1rem',
+              minWidth: '2.5rem',
+            }}
+            codeTagProps={{
+              className: 'font-mono text-md',
+            }}
+            className="dark:hidden overflow-hidden"
+          >
+            {code}
+          </SyntaxHighlighter>
+          <SyntaxHighlighter
+            language={language}
+            style={oneDark}
+            customStyle={{
+              margin: 0,
+              padding: '1rem',
+              fontSize: '0.875rem',
+              background: 'transparent',
+              color: '#f1f5f9',
+            }}
+            showLineNumbers={showLineNumbers}
+            lineNumberStyle={{
+              color: '#6b7280',
+              paddingRight: '1rem',
+              minWidth: '2.5rem',
+            }}
+            codeTagProps={{
+              className: 'font-mono text-sm',
+            }}
+            className="hidden dark:block overflow-hidden"
+          >
+            {code}
+          </SyntaxHighlighter>
+        </div>
       </div>
     </div>
   </CodeBlockContext.Provider>

@@ -169,7 +169,7 @@ const components: Options['components'] = {
   // Paragraph component
   p: ({ node, children, className, ...props }) => (
     <p
-      className={cn('mb-4 leading-none tracking-tight text-green-100 text-[1.5em]', className)}
+      className={cn('mb-4 leading-none tracking-tight text-[#f7eee3] text-[1.5em]', className)}
       {...props}
     >
       {children}
@@ -185,7 +185,7 @@ const components: Options['components'] = {
       return (
         <code
           className={cn(
-            'px-1.5 py-0.5 rounded bg-gray-800 text-red-500 font-mono text-sm border border-gray-700',
+            'px-1.5 py-0.5 rounded  text-white/80 text-[0.8em] item-center justify-center  border-white/20 bg-white/10 font-mono text-sm border ',
             className
           )}
           {...props}
@@ -200,25 +200,25 @@ const components: Options['components'] = {
   },
 
   ol: ({ node, children, className, ...props }) => (
-    <ol className={cn('ml-4 mb-4 list-outside  list-decimal text-orange-300', className)} {...props}>
+    <ol className={cn('ml-4 mb-4 list-outside  list-decimal ', className)} {...props}>
       {children}
     </ol>
   ),
 
   li: ({ node, children, className, ...props }) => (
-    <li className={cn(' leading-none tracking-tight text-[1.2em] list-[upper-roman]  text-cyan-200', className)} {...props}>
+    <li className={cn(' leading-none tracking-tight text-[1.2em] list-[upper-roman]  ', className)} {...props}>
       {children}
     </li>
   ),
 
   ul: ({ node, children, className, ...props }) => (
-    <ul className={cn('ml-4 mb-4 list-outside list-disc text-pink-300', className)} {...props}>
+    <ul className={cn('ml-4 mb-4 list-outside list-disc ', className)} {...props}>
       {children}
     </ul>
   ),
 
   strong: ({ node, children, className, ...props }) => (
-    <span className={cn('font-medium text-green-100 leading-relaxed tracking-tight', className)} {...props}>
+    <span className={cn('font-medium  leading-relaxed tracking-tight', className)} {...props}>
       {children}
     </span>
   ),
@@ -251,7 +251,7 @@ const components: Options['components'] = {
 
   h1: ({ node, children, className, ...props }) => (
     <h1
-      className={cn('mt-8 mb-4 text-green-200 font-bold leading-none tracking-tighter text-[2em] border-b border-green-400/30 pb-2', className)}
+      className={cn('mt-8 mb-4  font-bold leading-none tracking-tighter text-[2em] border-b border-green-400/30 pb-2', className)}
       {...props}
     >
       {children}
@@ -260,7 +260,7 @@ const components: Options['components'] = {
 
   h2: ({ node, children, className, ...props }) => (
     <h2
-      className={cn('mt-7 mb-3  leading-none font-stretch-semi-condensed text-green-200 tracking-tighter font-normal text-[2em] border-b border-blue-400/20 pb-2', className)}
+      className={cn('mt-7 mb-3  leading-none font-stretch-semi-condensed 200 tracking-tighter font-normal text-[2em] border-b border-blue-400/20 pb-2', className)}
       {...props}
     >
       {children}
@@ -268,20 +268,20 @@ const components: Options['components'] = {
   ),
 
   h3: ({ node, children, className, ...props }) => (
-    <h3 className={cn('mt-6 mb-3 text-green-200 font-stretch-semi-condensed  leading-none tracking-tighter font-normal text-[1.8em]', className)} {...props}>
+    <h3 className={cn('mt-6 mb-3  font-stretch-semi-condensed  leading-none tracking-tighter font-normal text-[1.8em]', className)} {...props}>
       {children}
     </h3>
   ),
 
   h4: ({ node, children, className, ...props }) => (
-    <h4 className={cn('mt-5 mb-2 text-purple-400  font-stretch-semi-condensed leading-none tracking-tight font-semibold text-lg', className)} {...props}>
+    <h4 className={cn('mt-5 mb-2   font-stretch-semi-condensed leading-none tracking-tight font-semibold text-lg', className)} {...props}>
       {children}
     </h4>
   ),
 
   h5: ({ node, children, className, ...props }) => (
     <h5
-      className={cn('mt-4 mb-2 text-yellow-400 leading-none tracking-tight font-semibold text-base', className)}
+      className={cn('mt-4 mb-2 leading-none tracking-tight font-semibold text-base', className)}
       {...props}
     >
       {children}
@@ -298,7 +298,7 @@ const components: Options['components'] = {
   blockquote: ({ node, children, className, ...props }) => (
     <blockquote
       className={cn(
-        'my-4 pl-4 border-l-4 border-yellow-500 bg-gray-900/70 py-2  ',
+        'my-4 pl-4 border-l-4 border-white/20  rounded-sm leading-none  bg-white/10 py-2  ',
         className
       )}
       {...props}
@@ -414,9 +414,32 @@ const components: Options['components'] = {
   ),
 
   pre: ({ node, className, children }) => {
-    let language = 'javascript';
-    if (typeof node?.properties?.className === 'string') {
-      language = node.properties.className.replace('language-', '');
+    // Detect language from child <code> element className (e.g., "language-python")
+    let language = 'plaintext';
+    const extractLang = (cls: any): string | null => {
+      if (typeof cls === 'string') {
+        const m = cls.match(/language-([^\s]+)/);
+        return m ? m[1] : null;
+      }
+      if (Array.isArray(cls)) {
+        const found = cls.find((c) => typeof c === 'string' && c.startsWith('language-'));
+        return typeof found === 'string' ? found.replace('language-', '') : null;
+      }
+      return null;
+    };
+    if (children && typeof children === 'object' && 'props' in (children as any)) {
+      const el = children as any;
+      language = extractLang(el.props?.className) ?? language;
+    } else if (Array.isArray(children)) {
+      for (const child of children as any[]) {
+        if (child && typeof child === 'object' && 'props' in child) {
+          const l = extractLang((child as any).props?.className);
+          if (l) {
+            language = l;
+            break;
+          }
+        }
+      }
     }
 
     // Extract code content from children

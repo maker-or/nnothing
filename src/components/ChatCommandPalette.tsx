@@ -35,10 +35,10 @@ const isChat = (
 const isCourse = (
   item: any,
 ): item is {
-  _id: Id<"Course">;
-  prompt: string;
-  stages: any[];
-  createdAt: number;
+    _id: Id<"Course">;
+    prompt: string;
+    stages: any[];
+    createdAt: number;
 } => {
   return "prompt" in item && "stages" in item && "createdAt" in item;
 };
@@ -51,7 +51,7 @@ const ChatCommandPalette = ({ isOpen, onClose }: ChatCommandPaletteProps) => {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Better Auth session
-    const { isAuthenticated,isLoading} = useConvexAuth();
+  const { isAuthenticated, isLoading } = useConvexAuth();
 
   // Fetch chats and courses from Convex only when authenticated
   const canQuery = isOpen && !isLoading && !!isAuthenticated;
@@ -66,6 +66,7 @@ const ChatCommandPalette = ({ isOpen, onClose }: ChatCommandPaletteProps) => {
   );
 
   const searchCourseResults = useQuery(
+    // Assuming this is the correct server function; leaving as-is
     api.course.searchChats,
     canQuery && searchQuery.trim() && currentMode === "learn"
       ? { query: searchQuery }
@@ -98,6 +99,7 @@ const ChatCommandPalette = ({ isOpen, onClose }: ChatCommandPaletteProps) => {
   const filteredItems = getFilteredItems();
 
   const handleArrowNavigation = (direction: "up" | "down") => {
+    if (!filteredItems.length) return;
     if (direction === "down") {
       setSelectedIndex((prevIndex) => (prevIndex + 1) % filteredItems.length);
     } else {
@@ -109,6 +111,8 @@ const ChatCommandPalette = ({ isOpen, onClose }: ChatCommandPaletteProps) => {
   };
 
   const handleItemSelection = (itemId?: string) => {
+    if (!filteredItems.length) return;
+
     const selectedItem = itemId
       ? filteredItems.find((item) => item._id === itemId)
       : filteredItems[selectedIndex];
@@ -117,7 +121,6 @@ const ChatCommandPalette = ({ isOpen, onClose }: ChatCommandPaletteProps) => {
       if (currentMode === "chat") {
         router.push(`/learning/chat/${selectedItem._id}`);
       } else {
-        // Navigate to course canvas
         router.push(`/learning/learn/${selectedItem._id}`);
       }
       onClose();
@@ -154,157 +157,152 @@ const ChatCommandPalette = ({ isOpen, onClose }: ChatCommandPaletteProps) => {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
       onClick={(e) => {
-        if (e.target === e.currentTarget) {
-          onClose();
-        }
+        if (e.target === e.currentTarget) onClose();
       }}
     >
-      {/* Main container with Learning page design language */}
-      <div className="relative rounded-2xl border border-white/20 bg-black/80 shadow-2xl backdrop-blur-xl">
-        {/* Noise overlay matching Learning page */}
-        <div
-          className="absolute inset-0 z-0 rounded-2xl opacity-10"
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
-            backgroundRepeat: "repeat",
-            backgroundSize: "256px 256px",
-          }}
-        />
-
-        <div className="relative z-10 max-h-[80vh] w-[700px] max-w-[90vw] overflow-hidden">
-          {/* Header with mode tabs */}
-          <div className="border-white/20 border-b">
-            {/* Mode tabs */}
-            <div className="flex border-white/20 border-b">
-              <button
-                className={`flex-1 px-6 py-3 text-center transition-all duration-200 ${
-                  currentMode === "chat"
-                    ? "bg-white/20 text-white"
-                    : "text-white/60 hover:text-white/80"
-                }`}
-                onClick={() => {
-                  setCurrentMode("chat");
-                  setSelectedIndex(0);
-                }}
-              >
-                Chat History
-              </button>
-              <button
-                className={`flex-1 px-6 py-3 text-center transition-all duration-200 ${
-                  currentMode === "learn"
-                    ? "bg-white/20 text-white"
-                    : "text-white/60 hover:text-white/80"
-                }`}
-                onClick={() => {
-                  setCurrentMode("learn");
-                  setSelectedIndex(0);
-                }}
-              >
-                Learn History
-              </button>
-            </div>
-
-            {/* Search input */}
-            <div className="p-4">
+      {/* Outer glossy frame */}
+      <div className="relative w-[760px] max-w-[92vw]">
+        <div className="rounded-3xl p-[1px] bg-gradient-to-b from-white/15 via-white/5 to-white/15 shadow-[0_30px_80px_rgba(0,0,0,0.65)]">
+          {/* Card base */}
+          <div className="relative rounded-3xl bg-[#0D0D0D] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_-1px_0_rgba(255,255,255,0.04)] overflow-hidden">
+            {/* Big search input */}
+            <div className="px-6 pt-6">
+              <label htmlFor="palette-search" className="sr-only">
+                Search
+              </label>
               <input
-                className="w-full bg-transparent p-3 px-4 py-3 text-white outline-none backdrop-blur-sm placeholder:text-white/50"
+                id="palette-search"
+                className="w-full bg-transparent text-[28px] leading-[2.75rem] font-light text-white placeholder:text-white/60 outline-none"
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={`Search ${currentMode === "chat" ? "chats" : "courses"}...`}
+                placeholder={`Search for ${currentMode === "chat" ? "chats" : "courses"}`}
                 ref={searchInputRef}
                 type="text"
                 value={searchQuery}
               />
             </div>
-          </div>
 
-          {/* Items list */}
-          <div className="max-h-96 overflow-y-auto">
-            {filteredItems.length === 0 ? (
-              <div className="py-8 text-center text-white/50">
-                {searchQuery.trim()
-                  ? `No ${currentMode === "chat" ? "chats" : "courses"} found`
-                  : `No ${currentMode === "chat" ? "chats" : "courses"} available`}
-              </div>
-            ) : (
-              <ul className="divide-y divide-white/10">
-                {filteredItems.map((item, index) => (
-                  <li
-                    className={`cursor-pointer px-6 py-4 transition-all duration-150 ${
-                      index === selectedIndex
-                        ? "bg-white/20 text-white"
-                        : "text-white/80 hover:bg-white/10"
-                    } `}
-                    key={item._id}
-                    onClick={() => handleItemSelection(item._id)}
-                    onMouseEnter={() => setSelectedIndex(index)}
-                  >
-                    <div className="flex flex-col space-y-1">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                          {/* Icon based on mode */}
-                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10">
-                            {currentMode === "chat" ? (
-                              <span className="text-sm">💬</span>
-                            ) : (
-                              <span className="text-sm">📚</span>
-                            )}
+            {/* Subtle divider under input */}
+            <div className="mt-4 h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+
+            {/* Results area */}
+            <div className="max-h-[420px] overflow-y-auto px-2 py-2">
+              {filteredItems.length === 0 ? (
+                <div className="flex h-[340px] items-center justify-center">
+                  <p className="text-sm text-white/45">
+                    {searchQuery.trim()
+                      ? `No ${currentMode === "chat" ? "chats" : "courses"} found`
+                      : `No ${currentMode === "chat" ? "chats" : "courses"} available`}
+                  </p>
+                </div>
+              ) : (
+                <ul className="divide-y divide-white/5">
+                  {filteredItems.map((item, index) => {
+                    const isActive = index === selectedIndex;
+                    const title =
+                      currentMode === "chat" && isChat(item)
+                        ? truncateText(item.title, 60)
+                        : currentMode === "learn" && isCourse(item)
+                        ? truncateText(item.prompt, 60)
+                        : "Unknown item";
+
+                    const meta =
+                      currentMode === "chat" && isChat(item)
+                        ? `${formatDate(item.updatedAt)}`
+                        : currentMode === "learn" && isCourse(item)
+                        ? `${item.stages?.length || 0} stages • ${formatDate(item.createdAt)}`
+                        : "Unknown details";
+
+                    return (
+                      <li
+                        key={item._id}
+                        className={[
+                          "cursor-pointer rounded-xl px-4 sm:px-5 py-4 my-1 transition-colors",
+                          isActive
+                            ? "bg-white/10 text-white"
+                            : "text-white/80 hover:bg-white/5",
+                        ].join(" ")}
+                        onClick={() => handleItemSelection(item._id)}
+                        onMouseEnter={() => setSelectedIndex(index)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+
+                            <div className="min-w-0">
+                              <p className="truncate text-[16px]">{title}</p>
+                              <p className="mt-0.5 text-xs text-white/55">{meta}</p>
+                            </div>
                           </div>
 
-                          <div className="flex-1">
-                            <p className="font-light text-lg">
-                              {currentMode === "chat" && isChat(item)
-                                ? truncateText(item.title, 50)
-                                : currentMode === "learn" && isCourse(item)
-                                  ? truncateText(item.prompt, 50)
-                                  : "Unknown item"}
-                            </p>
-                            <p className="text-sm text-white/60">
-                              {currentMode === "chat" && isChat(item)
-                                ? ` ${formatDate(item.updatedAt)}`
-                                : currentMode === "learn" && isCourse(item)
-                                  ? `${item.stages?.length || 0} stages • ${formatDate(item.createdAt)}`
-                                  : "Unknown details"}
-                            </p>
-                          </div>
-                        </div>
-
-                        {currentMode === "chat" &&
-                          isChat(item) &&
-                          item.pinned && (
+                          {currentMode === "chat" && isChat(item) && item.pinned && (
                             <span className="text-sm text-yellow-400">📌</span>
                           )}
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
 
-          {/* Footer */}
-          <div className="border-white/20 border-t p-4 text-center">
-            <p className="text-sm text-white/40">
-              Press{" "}
-              <kbd className="rounded bg-white/10 px-2 py-1 text-xs">Tab</kbd>{" "}
-              to switch modes,
-              <kbd className="ml-1 rounded bg-white/10 px-2 py-1 text-xs">
-                ↑↓
-              </kbd>{" "}
-              to navigate,
-              <kbd className="ml-1 rounded bg-white/10 px-2 py-1 text-xs">
-                Enter
-              </kbd>{" "}
-              to select,
-              <kbd className="ml-1 rounded bg-white/10 px-2 py-1 text-xs">
-                Esc
-              </kbd>{" "}
-              to close
-            </p>
+            {/* Bottom bar with mode selector */}
+            <div className="relative mt-2 border-t   border-white/10">
+              <div className="flex items-center justify-between px-4 sm:px-5 py-3">
+                <div className="flex text-md items-center gap-6">
+                  <button
+                    aria-selected={currentMode === "chat"}
+                    className={[
+                      "text-2xl transition-colors",
+                      currentMode === "chat"
+                        ? "text-white font-bold"
+                        : "text-white/60 hover:text-white/80",
+                    ].join(" ")}
+                    onClick={() => {
+                      setCurrentMode("chat");
+                      setSelectedIndex(0);
+                      searchInputRef.current?.focus();
+                    }}
+                  >
+                    Chat
+                  </button>
+                  <button
+                    aria-selected={currentMode === "learn"}
+                    className={[
+                      " transition-colors text-2xl",
+                      currentMode === "learn"
+                        ? "text-white font-bold"
+                        : "text-white/60 hover:text-white/80",
+                    ].join(" ")}
+                    onClick={() => {
+                      setCurrentMode("learn");
+                      setSelectedIndex(0);
+                      searchInputRef.current?.focus();
+                    }}
+                  >
+                    Learn
+                  </button>
+                </div>
+
+                {/* Hints kept minimal for cleanliness */}
+                <div className="hidden sm:flex items-center gap-2 text-[11px] text-white/35">
+                  <span className="rounded bg-white/10 px-1.5 py-0.5">Tab</span>
+                  <span>switch</span>
+                  <span className="rounded bg-white/10 px-1.5 py-0.5 ml-2">↑↓</span>
+                  <span>navigate</span>
+                  <span className="rounded bg-white/10 px-1.5 py-0.5 ml-2">Enter</span>
+                  <span>select</span>
+                  <span className="rounded bg-white/10 px-1.5 py-0.5 ml-2">Esc</span>
+                  <span>close</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
+
+        {/* Soft outer glow to enhance depth */}
+        <div className="pointer-events-none absolute inset-0 -z-10 rounded-[28px] blur-2xl bg-black/40" />
       </div>
     </div>
   );
