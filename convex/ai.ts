@@ -150,7 +150,10 @@ export const streamChatCompletion = action({
       // Configure Groq client for AI SDK
       const groqClient = createGroq({
         apiKey: groqKey,
-        baseURL:"https://api.groq.com/openai/v1"
+        baseURL:"https://groq.helicone.ai/openai/v1",
+        headers: {
+           "Helicone-Auth": `Bearer ${process.env.HELICONE_API_KEY}`,
+         },
       });
 
       const response =  streamText({
