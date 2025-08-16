@@ -1,16 +1,9 @@
-import { PostHog } from 'posthog-node'
+import { registerOTel } from "@vercel/otel";
+import { LangfuseExporter } from "langfuse-vercel";
 
-export async function register() {
-  if (process.env.NEXT_RUNTIME === 'nodejs') {
-    const posthog = new PostHog(
-      process.env.NEXT_PUBLIC_POSTHOG_KEY!,
-      {
-        host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-      }
-    )
-
-    // You can add server-side event tracking here if needed
-    // For example:
-    // posthog.capture('server_started', { timestamp: new Date().toISOString() })
-  }
+export function register() {
+  registerOTel({
+    serviceName: "langfuse-vercel-ai-nextjs-example",
+    traceExporter: new LangfuseExporter(),
+  });
 }

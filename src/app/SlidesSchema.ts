@@ -10,6 +10,7 @@ const SlideSchema = z.object({
 
   subTitles: z
     .string()
+    .optional()
     .describe('A brief subtitle or summary of the slide content (optional)'),
 
   svg: z

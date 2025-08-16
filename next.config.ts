@@ -1,6 +1,14 @@
 import type { NextConfig } from "next";
 
+type InstrumentEnabled = NextConfig & {
+  experimental: {
+    instrumentationHook: boolean;
+  };
+};
+
 const nextConfig: NextConfig = {
+
+
   /* config options here */
 
   async rewrites() {
@@ -19,8 +27,14 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+
+
+  experimental: {
+      instrumentationHook: true,
+
+  } ,
   // This is required to support PostHog trailing slash API requests
   skipTrailingSlashRedirect: true,
-};
+} as InstrumentEnabled;
 
 export default nextConfig;

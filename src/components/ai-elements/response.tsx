@@ -169,7 +169,7 @@ const components: Options['components'] = {
   // Paragraph component
   p: ({ node, children, className, ...props }) => (
     <p
-      className={cn('mb-4 leading-none tracking-tight text-[#f7eee3] text-[1.5em]', className)}
+      className={cn('mb-4 leading-none tracking-tight text-[#f7eee3] text-[1.4em]', className)}
       {...props}
     >
       {children}
@@ -511,10 +511,10 @@ export const Response = memo(
         className={cn(
           'size-full prose prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
           // KaTeX styling overrides
-          '[&_.katex]:text-gray-100 text-[1.2em] [&_.katex-html]:text-gray-100 [&_.katex-display]:text-gray-100',
-          '[&_.katex_.base]:text-gray-100 text-[1.2em] [&_.katex_.mord]:text-gray-100 [&_.katex_.mbin]:text-blue-300',
-          '[&_.katex_.mrel]:text-green-300 text-[1.2em] [&_.katex_.mop]:text-yellow-300 [&_.katex_.mpunct]:text-gray-300',
-          '[&_.katex-display]:my-6 text-[1.2em] [&_.katex-display]:text-center',
+          '[&_.katex]:text-gray-100 text-[1em] [&_.katex-html]:text-gray-100 [&_.katex-display]:text-gray-100',
+          '[&_.katex_.base]:text-gray-100 text-[1em] [&_.katex_.mord]:text-gray-100 [&_.katex_.mbin]:text-blue-300',
+          '[&_.katex_.mrel]:text-green-300 text-[1em] [&_.katex_.mop]:text-yellow-300 [&_.katex_.mpunct]:text-gray-300',
+          '[&_.katex-display]:my-6 text-[1em] [&_.katex-display]:text-center',
           className,
         )}
         {...props}

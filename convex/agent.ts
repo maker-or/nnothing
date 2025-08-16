@@ -1,14 +1,15 @@
 'use node';
 import { createOpenAI } from '@ai-sdk/openai';
-import { generateObject, generateText, tool } from 'ai';
+import { generateObject, generateText, tool, Output } from 'ai';
 import { v } from 'convex/values';
 import Exa from 'exa-js';
 import { z } from 'zod';
 import { AgentOutputSchema } from '../src/app/SlidesSchema';
 import { api } from './_generated/api';
 import { action } from './_generated/server';
-import { PostHog } from 'posthog-node';
-import { withTracing } from '@posthog/ai';
+import { Langfuse } from "langfuse";
+import { createGroq } from '@ai-sdk/groq';
+import { randomUUID } from 'crypto';
 
 export const agent = action({
   args: {
@@ -22,7 +23,8 @@ export const agent = action({
       courseId: args.courseId,
     });
 
-      const helicone = process.env.HELICONE_API_KEY || '';
+  const helicone = process.env.HELICONE_API_KEY || '';
+  const groqKey = process.env.GROQ_KEY || '';
 
     console.log('Agent received message sucessfully from the backend', course);
 
@@ -34,15 +36,40 @@ export const agent = action({
       );
     }
 
+    if (!groqKey) {
+      throw new Error(
+        'groqKey from agent shyam API key is required. Please add your API key in settings.'
+      );
+    }
+
+
     if (!openRouterKey.startsWith('sk-')) {
       throw new Error(
         "Invalid OpenRouter API key format. Key should start with 'sk-'"
       );
     }
 
-    const phClient = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
-      host: process.env.NEXT_PUBLIC_POSTHOG_HOST ?? 'https://us.i.posthog.com',
+
+
+    const langfuse = new Langfuse({
+      secretKey: process.env.LANGFUSE_SECRET_KEY!,
+      publicKey: process.env.LANGFUSE_PUBLIC_KEY!,
+      baseUrl: process.env.LANGFUSE_BASEURL ?? "https://cloud.langfuse.com"
     });
+
+
+    const groqClient = createGroq({
+      apiKey: groqKey,
+      baseURL:"https://groq.helicone.ai/openai/v1",
+      headers: {
+         "Helicone-Auth": `Bearer ${process.env.HELICONE_API_KEY}`,
+         "Helicone-Posthog-Key": `${process.env.NEXT_PUBLIC_POSTHOG_KEY}`,
+         "Helicone-Posthog-Host": `${process.env.NEXT_PUBLIC_POSTHOG_HOST}`,
+         "Helicone-User-Id":userId.subject,
+         "Helicone-Property-mode":"Learn mode",
+       },
+    });
+
 
     // Create OpenRouter client
     const openrouter = createOpenAI({
@@ -55,75 +82,62 @@ export const agent = action({
       },
     });
 
-    const tracedModel = (modelName: string, ctx: { userId: string; courseId: string }) =>
-      withTracing(openrouter(modelName), phClient, {
-        posthogDistinctId: ctx.userId,
-        posthogProperties: {
-          course_id: ctx.courseId,
-          source: 'sphereai-agent',
-        },
-        // Optional: redact inputs/outputs if needed
-        // redactInput: true,
-        // redactOutput: true,
-      });
+    const tracedModel = (modelName: string, ctx: { userId: string; courseId: string }) => {
+      console.log('tracedModel called with:', modelName);
+      // Route google/gemini models via openrouter for main orchestrator
+      if (modelName.includes('google/gemini')) {
+        console.log('Routing to OpenRouter:', modelName);
+        return openrouter(modelName);
+      }
+      // Route openai models via groqClient for tools
+      console.log('Routing to GroqClient:', modelName);
+      return groqClient(modelName);
+    };
     const modelCtx = { userId: userId.subject, courseId: args.courseId };
     type ToolExec<TArgs, TResult> = (args: TArgs) => Promise<TResult>;
-  // wrapper to track and log the tool usage
+  // wrapper to track and log the tool usage with Langfuse
     function withToolTracing<TArgs extends Record<string, any>, TResult>(
       name: string,
       exec: ToolExec<TArgs, TResult>,
-      ph: PostHog,
+      langfuseClient: Langfuse,
       baseProps?: Record<string, any>
     ): ToolExec<TArgs, TResult> {
       return async (args: TArgs) => {
-        const start = Date.now();
-        // minimally capture; redact if arguments may contain PII
-        const common = { tool_name: name, ...baseProps, tool_args: args };
-        try {
-          // Mark tool-start span
-          ph.capture({
-            distinctId: baseProps?.posthogDistinctId ?? 'anonymous',
-            event: '$ai_tool_start',
-            properties: { ...common },
-          });
+        const span = langfuseClient.span({
+          name: `tool-${name}`,
+          input: args,
+          metadata: {
+            ...baseProps,
+            tool_name: name,
+          },
+        });
 
+        try {
           const result = await exec(args);
 
-          ph.capture({
-            distinctId: baseProps?.posthogDistinctId ?? 'anonymous',
-            event: '$ai_tool_end',
-            properties: {
-              ...common,
-              duration_ms: Date.now() - start,
-              tool_success: true,
-              // optional: size hints
-              tool_result_type: typeof result,
-            },
+          span.end({
+            output: result,
           });
 
           return result;
         } catch (err: any) {
-          ph.capture({
-            distinctId: baseProps?.posthogDistinctId ?? 'anonymous',
-            event: '$ai_tool_error',
-            properties: {
-              ...common,
-              duration_ms: Date.now() - start,
-              tool_success: false,
+          span.end({
+            output: {
               error_message: err?.message ?? 'Unknown error',
               error_name: err?.name,
             },
+            level: "ERROR",
           });
           throw err;
         }
       };
     }
 
-    const runId = crypto.randomUUID();
+    const runId = randomUUID();
     const baseProps = {
-      posthogDistinctId: modelCtx.userId,
-      course_id: modelCtx.courseId,
-      run_id: runId,
+      userId: modelCtx.userId,
+      courseId: modelCtx.courseId,
+      runId: runId,
       source: 'sphereai-agent',
     };
 
@@ -199,7 +213,8 @@ export const agent = action({
 
         // Use OpenRouter with structured output
         const result = await generateObject({
-          model: tracedModel('openai/gpt-oss-20b:free',modelCtx),
+          model: tracedModel('openai/gpt-oss-120b',modelCtx),
+           maxRetries:0,
           system:`Your role is to generate a detailed and structured syllabus in strict compliance with the provided schema.
 
 
@@ -237,12 +252,13 @@ export const agent = action({
           - Return only a valid JSON object matching the schema.
           - Do not include explanations, headings, or text outside the JSON.`,
           schema: GetSyllabusSchema,
+
           prompt: ` ${query}`,
         });
 
         return JSON.stringify(result.object);
       },
-       phClient, baseProps),
+       langfuse, baseProps),
     });
 
     const webSearchTools = tool({
@@ -280,7 +296,7 @@ export const agent = action({
             message: error instanceof Error ? error.message : 'Unknown error',
           });
         }
-      },phClient, baseProps),
+      },langfuse, baseProps),
     });
 
     const knowledgeSearchTools = tool({
@@ -290,8 +306,10 @@ export const agent = action({
       }),
       execute: withToolTracing('knowledgeSearchTools', async ({ query })=> {
         console.log('Knowledge searching for:', query);
+
         const result = await generateText({
-          model: tracedModel('openai/gpt-oss-20b:free',modelCtx),
+          model: tracedModel('openai/gpt-oss-120b',modelCtx),
+           maxRetries:0,
           system:`You are an intelligent knowledge retrieval assistant.
           Your role is to search the knowledge base and return the most relevant, accurate, and useful information in direct, clear, and well-structured text form.
 
@@ -340,7 +358,7 @@ export const agent = action({
         });
 
         return result.text;
-      },phClient, baseProps),
+      },langfuse, baseProps),
     });
 
     const getCodeTools = tool({
@@ -353,7 +371,8 @@ export const agent = action({
         console.log('Getting code for:', query, 'in', language);
 
         const result = await generateObject({
-          model: tracedModel('openai/gpt-oss-20b:free',modelCtx),
+          model: tracedModel('openai/gpt-oss-120b',modelCtx),
+           maxRetries:0,
           system:`You are a world-class programming tutor and code generator. Your task is to create correct, runnable code
           examples for the given topic and language, along with a clear explanation.
           Your output must strictly match the provided schema.
@@ -395,7 +414,7 @@ export const agent = action({
         });
 
         return JSON.stringify(result.object);
-      },phClient, baseProps),
+      },langfuse, baseProps),
     });
 
     const testTools = tool({
@@ -408,7 +427,8 @@ export const agent = action({
         console.log('Generating test for:', topic, 'with', no, 'questions');
 
         const result = await generateObject({
-          model: tracedModel('openai/gpt-oss-20b:free',modelCtx),
+          model: tracedModel('openai/gpt-oss-120b',modelCtx),
+           maxRetries:0,
           schema: TestQuestionSchema,
           system: `You are a world-class test generator. Your role is to create high-quality multiple-choice test questions
           that help students prepare effectively for exams. The questions must strictly match the provided schema.
@@ -448,7 +468,7 @@ export const agent = action({
         });
 
         return result.object;
-      },phClient, baseProps),
+      },langfuse, baseProps),
     });
 
     const svgTool = tool({
@@ -459,7 +479,7 @@ export const agent = action({
       }),
       execute: withToolTracing('svgTool', async ({ Query }) => {
         const result = await generateObject({
-          model: tracedModel('openai/gpt-oss-20b:free',modelCtx),
+          model: tracedModel('openai/gpt-oss-120b',modelCtx),
           schema: SvgGenerationSchema,
           system: `Your role is to generate clean, minimalist, and visually appealing SVG code based on the provided prompt or description.
 
@@ -490,7 +510,7 @@ export const agent = action({
           prompt: `${Query}`,
         });
         return result.object;
-      },phClient, baseProps),
+      },langfuse, baseProps),
     });
 
     const flashcardsTools = tool({
@@ -503,7 +523,7 @@ export const agent = action({
         console.log('Creating flashcards for:', query, 'count:', no);
 
         const result = await generateObject({
-          model: tracedModel('openai/gpt-oss-20b:free',modelCtx),
+          model: tracedModel('openai/gpt-oss-120b',modelCtx),
           system:`Your role is to create clear, accurate, and engaging flashcards for studying a given topic.
           The flashcards must help the student actively recall and understand key concepts.
           Your output must strictly match the provided FlashcardSchema.
@@ -546,7 +566,7 @@ export const agent = action({
         });
 
         return JSON.stringify(result.object);
-      },phClient, baseProps),
+      },langfuse, baseProps),
     });
 
 
@@ -567,10 +587,40 @@ export const agent = action({
       Topics: ${stage.include.join(', ')}
       Outcome: ${stage.outcome}
       Discussion area: ${stage.discussion_prompt || ''}`;
+
+      // Create trace for this stage (outside try block for error handling)
+      const stageTrace = langfuse.trace({
+        name: `stage-${stage.title}`,
+        userId: modelCtx.userId,
+        metadata: {
+          stage_title: stage.title,
+          ...baseProps,
+        },
+      });
+
       try {
-        // Use generateText with tools, then parse the result
         const answer = await generateText({
-          model: tracedModel('google/gemini-2.5-pro',modelCtx),
+          model: tracedModel('openai/gpt-oss-120b',modelCtx),
+          experimental_output: Output.object({
+            schema: AgentOutputSchema,
+          }),
+          providerOptions: {
+              groq: {
+                reasoningFormat: 'parsed',
+                reasoningEffort: 'high',
+                parallelToolCalls: true, // Enable parallel function calling (default: true)
+                user: userId.subject, // Unique identifier for end-user (optional)
+              },
+            },
+            maxRetries:0,
+          experimental_telemetry: {
+            isEnabled: true,
+            functionId: `stage-${stage.title}`,
+            metadata: {
+              stage_title: stage.title,
+              ...baseProps,
+            },
+          },
           system: `You are SphereAI — an advanced, structured educational content generator.
           Your mission is to produce a comprehensive, multi-slide learning module for any topic a student requests, by orchestrating your available tools in a logical sequence to create an engaging, easy-to-follow learning experience.
 
@@ -732,42 +782,35 @@ export const agent = action({
             flashcardsTools,
             svgTool,
           },
-
+          toolChoice:'auto'
         });
+
         console.log('########################################################');
         console.log('the answer is', answer.text);
         console.log('########################################################');
 
-        const result = await generateObject({
-          model: tracedModel('openai/gpt-oss-20b:free',modelCtx),
-          schema: AgentOutputSchema,
-          prompt: `format the following information into the valid schema that we have provided ${answer.text} `,
-          system: `"Convert all provided information into the specified valid schema.
-            *   **Missing Information:** If schema fields are missing data, infer and populate them with contextually appropriate information.
-            *   **Completeness:** Do NOT compress, summarize, or omit any given information.
-            *   **Output:** Your sole task is to ensure the output strictly adheres to the provided schema's structure and format." `,
-        });
-        console.log('the final result is', result.object);
 
-        const parsed = AgentOutputSchema.safeParse(result.object);
+
+        const parsed = AgentOutputSchema.safeParse(answer.text);
         if (!parsed.success) {
-          phClient.capture({
-                    distinctId: modelCtx.userId,
-                    event: '$ai_validation_error',
-                    properties: {
-                      course_id: args.courseId,
-                      run_id: runId,
-                      stage_title: stage.title,
-                      issues: JSON.stringify(parsed.error.issues),
-                    },
-                  });
+          stageTrace.event({
+            name: 'validation-error',
+            input: {
+              stage_title: stage.title,
+              issues: parsed.error.issues,
+            },
+            metadata: {
+              ...baseProps,
+              stage_title: stage.title,
+            },
+          });
           console.error('Invalid structured output:', parsed.error.format());
           console.log(
             '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@'
           );
           console.log(
             'Raw structured output:',
-            JSON.stringify(result.object, null, 2)
+            JSON.stringify(answer.text, null, 2)
           );
           console.log(
             '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@'
@@ -789,21 +832,19 @@ export const agent = action({
         });
         stageIds.push(stageId);
       } catch (error) {
-        phClient.capture({
-                distinctId: modelCtx.userId,
-                event: '$ai_stage_error',
-                properties: {
-                  course_id: args.courseId,
-                  run_id: runId,
-                  stage_title: stage.title,
-                  error_message: error instanceof Error ? error.message : String(error),
-                  error_name: error instanceof Error ? error.name : 'UnknownError',
-                },
-              });
+        stageTrace.event({
+          name: 'stage-error',
+          input: {
+            stage_title: stage.title,
+            error_message: error instanceof Error ? error.message : String(error),
+            error_name: error instanceof Error ? error.name : 'UnknownError',
+          },
+          metadata: baseProps,
+        });
         console.error('Agent processing error:', error);
       }
     }
- await phClient.shutdown()
+ await langfuse.flushAsync()
     return stageIds;
   },
 });

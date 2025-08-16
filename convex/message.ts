@@ -185,13 +185,16 @@ export const updateStreamingSession = internalMutation({
         lastChunk: args.chunk,
       });
 
-      // Update the message content with the chunk
-      const message = await ctx.db.get(session.messageId);
-      if (message) {
-        const newContent = (message.content || '') + args.chunk;
-        await ctx.db.patch(session.messageId, {
-          content: newContent,
-        });
+      // Only update the message content with chunks during streaming
+      // The final content will be set by the main action
+      if (args.chunk) {
+        const message = await ctx.db.get(session.messageId);
+        if (message) {
+          const newContent = (message.content || '') + args.chunk;
+          await ctx.db.patch(session.messageId, {
+            content: newContent,
+          });
+        }
       }
     }
   },
@@ -300,5 +303,32 @@ export const getCompleteResponse = query({
       return firstMessage?.content ?? null;
     }
     return null;
+  },
+});
+
+export const clearStreamingSession = mutation({
+  args: {
+    chatId: v.id('chats'),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error('Not authenticated');
+    const userId = identity.subject;
+
+    // Find and deactivate any active streaming sessions for this chat
+    const activeSessions = await ctx.db
+      .query('streamingSessions')
+      .withIndex('by_chat', (q) => q.eq('chatId', args.chatId))
+      .filter((q) => q.eq(q.field('userId'), userId))
+      .filter((q) => q.eq(q.field('isActive'), true))
+      .collect();
+
+    for (const session of activeSessions) {
+      await ctx.db.patch(session._id, {
+        isActive: false,
+      });
+    }
+
+    return activeSessions.length;
   },
 });

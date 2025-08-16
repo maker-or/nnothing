@@ -59,7 +59,6 @@ const Chatting = () => {
   const router = useRouter();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showChatPalette, setShowChatPalette] = useState(false);
-  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const convexChatId = chatID as Id<"chats">;
 
   // Convex hooks - only query if we have a valid chatId
@@ -69,6 +68,10 @@ const Chatting = () => {
   );
   const messages = useQuery(
     api.message.getMessages,
+    chatID ? { chatId: convexChatId } : "skip",
+  );
+  const activeStreamingSession = useQuery(
+    api.message.getActiveStreamingSession,
     chatID ? { chatId: convexChatId } : "skip",
   );
 
@@ -100,15 +103,8 @@ const Chatting = () => {
           messages: value.message,
           parentMessageId: userMessageId,
         });
-
-        // Track streaming for reasoning UI
-        setStreamingMessageId(assistantMessageId);
-
-        // Clear streaming state after a delay (you might want to handle this better)
-        setTimeout(() => setStreamingMessageId(null), 1000);
       } catch (error) {
         console.error("Error sending message:", error);
-        setStreamingMessageId(null);
       }
     },
     validators: {
@@ -288,10 +284,10 @@ const Chatting = () => {
                       }`}
                     >
                       {/* Show reasoning only for assistant messages that have reasoning */}
-                      {message.role === "assistant" && parsedContent.reasoning && (
+                      {/*{message.role === "assistant" && parsedContent.reasoning && (
                         <Reasoning
                           className="w-full mb-4"
-                          isStreaming={streamingMessageId === message._id}
+                          isStreaming={activeStreamingSession?.messageId === message._id}
                         >
                           <ReasoningTrigger title="AI Reasoning" />
                           <ReasoningContent className="whitespace-pre-wrap text-sm leading-relaxed text-white/70 bg-white/5 rounded-md p-3 border border-white/10">
@@ -299,13 +295,21 @@ const Chatting = () => {
                           </ReasoningContent>
 
                         </Reasoning>
-                      )}
+                      )}*/}
 
                       {/* Main message content */}
                       <div className="whitespace-pre-wrap text-sm leading-relaxed">
                         <Response>
                           {parsedContent.content}
                         </Response>
+
+                        {/* Show loading spinner while streaming */}
+                        {activeStreamingSession?.messageId === message._id && activeStreamingSession?.isActive && (
+                          <div className="flex items-center mt-3 text-white/50">
+                            <div className="h-3 w-3 animate-spin rounded-full border-white/40 border-b-2 mr-2" />
+                            <span className="text-xs animate-pulse">AI is thinking...</span>
+                          </div>
+                        )}
                       </div>
 
 
@@ -340,7 +344,8 @@ const Chatting = () => {
                 {({ state, handleBlur, handleChange }) => (
                   <div className="relative">
                     <textarea
-                      className="w-full resize-none rounded-full border border-white/10 bg-white/5 px-4 py-4 pr-14 text-sm text-white placeholder:text-white/40 backdrop-blur-sm focus:border-white/20 focus:outline-none focus:ring-2 focus:ring-white/20"
+                      className="w-full resize-none rounded-full border border-white/10 bg-white/5 px-4 py-4 pr-14 text-sm text-white placeholder:text-white/40 backdrop-blur-sm focus:border-white/20 focus:outline-none focus:ring-2 focus:ring-white/20 disabled:opacity-50"
+                      disabled={activeStreamingSession?.isActive}
                       onBlur={handleBlur}
                       onChange={(e) => handleChange(e.target.value)}
                       onInput={(e) => {
@@ -349,12 +354,12 @@ const Chatting = () => {
                         target.style.height = `${target.scrollHeight}px`;
                       }}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
+                        if (e.key === "Enter" && !e.shiftKey && !activeStreamingSession?.isActive) {
                           e.preventDefault();
                           void form.handleSubmit();
                         }
                       }}
-                      placeholder="Continue the conversation..."
+                      placeholder={activeStreamingSession?.isActive ? "AI is responding..." : "Continue the conversation..."}
                       rows={1}
                       style={{
                         minHeight: "48px",
@@ -367,11 +372,11 @@ const Chatting = () => {
                       {([canSubmit, isSubmitting]) => (
                         <button
                           className="absolute bottom-4 right-2 flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
-                          disabled={!canSubmit || isSubmitting}
+                          disabled={!canSubmit || isSubmitting || activeStreamingSession?.isActive}
                           type="submit"
                           aria-label="Send message"
                         >
-                          {isSubmitting ? (
+                          {isSubmitting || activeStreamingSession?.isActive ? (
                             <ArrowClockwiseIcon className="animate-spin" size={18} />
                           ) : (
                             <ArrowUpIcon size={18} />
