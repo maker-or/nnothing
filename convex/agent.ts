@@ -1,145 +1,62 @@
-'use node';
-import { createOpenAI } from '@ai-sdk/openai';
-import { generateObject, generateText, tool, Output } from 'ai';
-import { v } from 'convex/values';
-import Exa from 'exa-js';
-import { z } from 'zod';
-import { AgentOutputSchema } from '../src/app/SlidesSchema';
-import { api } from './_generated/api';
-import { action } from './_generated/server';
-import { Langfuse } from "langfuse";
-import { createGroq } from '@ai-sdk/groq';
-import { randomUUID } from 'crypto';
+"use node";
+import { v } from "convex/values";
+import { action } from "./_generated/server";
+import { api } from "./_generated/api";
+import { AgentOutputSchema } from "../src/app/SlidesSchema";
+import { generateObject, tool, generateText, streamText } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { z } from "zod";
+import { google , createGoogleGenerativeAI} from '@ai-sdk/google';
+
+import Exa from "exa-js";
 
 export const agent = action({
   args: {
-    courseId: v.id('Course'),
+    courseId: v.id("Course"),
   },
   handler: async (ctx, args): Promise<any> => {
+
     const userId = await ctx.auth.getUserIdentity();
-    if (!userId) throw new Error('Not authenticated');
+    if (!userId) throw new Error("Not authenticated");
 
     const course = await ctx.runQuery(api.course.getCourse, {
       courseId: args.courseId,
     });
 
-  const helicone = process.env.HELICONE_API_KEY || '';
-  const groqKey = process.env.GROQ_KEY || '';
-
-    console.log('Agent received message sucessfully from the backend', course);
+    console.log("Agent received message sucessfully from the backend", course);
 
     // Get API key from environment
-    const openRouterKey = process.env.OPENROUTER_API_KEY || '';
+    const openRouterKey = process.env.OPENROUTER_API_KEY || "";
+      const geminikey = process.env.GEMINI_API_KEY || '';
     if (!openRouterKey) {
       throw new Error(
-        'OpenRouter API key is required. Please add your API key in settings.'
+        "OpenRouter API key is required. Please add your API key in settings.",
       );
     }
 
-    if (!groqKey) {
+    if (!openRouterKey.startsWith("sk-")) {
       throw new Error(
-        'groqKey from agent shyam API key is required. Please add your API key in settings.'
+        "Invalid OpenRouter API key format. Key should start with 'sk-'",
       );
     }
 
-
-    if (!openRouterKey.startsWith('sk-')) {
+    if (!geminikey) {
       throw new Error(
-        "Invalid OpenRouter API key format. Key should start with 'sk-'"
+        'geminikey from agent shyam API key is required. Please add your API key in settings.'
       );
     }
-
-
-
-    const langfuse = new Langfuse({
-      secretKey: process.env.LANGFUSE_SECRET_KEY!,
-      publicKey: process.env.LANGFUSE_PUBLIC_KEY!,
-      baseUrl: process.env.LANGFUSE_BASEURL ?? "https://cloud.langfuse.com"
-    });
-
-
-    const groqClient = createGroq({
-      apiKey: groqKey,
-      baseURL:"https://groq.helicone.ai/openai/v1",
-      headers: {
-         "Helicone-Auth": `Bearer ${process.env.HELICONE_API_KEY}`,
-         "Helicone-Posthog-Key": `${process.env.NEXT_PUBLIC_POSTHOG_KEY}`,
-         "Helicone-Posthog-Host": `${process.env.NEXT_PUBLIC_POSTHOG_HOST}`,
-         "Helicone-User-Id":userId.subject,
-         "Helicone-Property-mode":"Learn mode",
-       },
-    });
-
 
     // Create OpenRouter client
     const openrouter = createOpenAI({
-      baseURL: 'https://openrouter.helicone.ai/api/v1',
+      baseURL: "https://openrouter.ai/api/v1",
       apiKey: openRouterKey,
-      headers: {
-        'HTTP-Referer': 'https://sphereai.in/', // Optional: for OpenRouter analytics
-        'X-Title': 'sphereai.in',
-        'Helicone-Auth': `Bearer ${helicone}`, // Optional: for OpenRouter analytics
-      },
     });
 
-    const tracedModel = (modelName: string, ctx: { userId: string; courseId: string }) => {
-      console.log('tracedModel called with:', modelName);
-      // Route google/gemini models via openrouter for main orchestrator
-      if (modelName.includes('google/gemini')) {
-        console.log('Routing to OpenRouter:', modelName);
-        return openrouter(modelName);
-      }
-      // Route openai models via groqClient for tools
-      console.log('Routing to GroqClient:', modelName);
-      return groqClient(modelName);
-    };
-    const modelCtx = { userId: userId.subject, courseId: args.courseId };
-    type ToolExec<TArgs, TResult> = (args: TArgs) => Promise<TResult>;
-  // wrapper to track and log the tool usage with Langfuse
-    function withToolTracing<TArgs extends Record<string, any>, TResult>(
-      name: string,
-      exec: ToolExec<TArgs, TResult>,
-      langfuseClient: Langfuse,
-      baseProps?: Record<string, any>
-    ): ToolExec<TArgs, TResult> {
-      return async (args: TArgs) => {
-        const span = langfuseClient.span({
-          name: `tool-${name}`,
-          input: args,
-          metadata: {
-            ...baseProps,
-            tool_name: name,
-          },
-        });
+    const google = createGoogleGenerativeAI({
+      baseURL:"https://generativelanguage.googleapis.com/v1beta",
+      apiKey:geminikey
+    });
 
-        try {
-          const result = await exec(args);
-
-          span.end({
-            output: result,
-          });
-
-          return result;
-        } catch (err: any) {
-          span.end({
-            output: {
-              error_message: err?.message ?? 'Unknown error',
-              error_name: err?.name,
-            },
-            level: "ERROR",
-          });
-          throw err;
-        }
-      };
-    }
-
-    const runId = randomUUID();
-    const baseProps = {
-      userId: modelCtx.userId,
-      courseId: modelCtx.courseId,
-      runId: runId,
-      source: 'sphereai-agent',
-    };
 
     // Environment variables for external services
     const CX = process.env.GOOGLE_CX;
@@ -148,135 +65,98 @@ export const agent = action({
 
     // Define schemas for structured outputs
     const GetCodeSchema = z.object({
-      language: z.string().describe('Programming language for the code'),
+      language: z.string().describe("Programming language for the code"),
       code: z
         .string()
         .min(10)
-        .describe('The actual code in the specified language'),
-      explanation: z.string().describe('Explanation of the cod'),
+        .describe("The actual code in the specified language"),
+      explanation: z.string().describe("Explanation of the code"),
     });
 
     const GetSyllabusSchema = z.object({
       query: z
         .string()
         .min(2)
-        .describe('The subject or concept for the syllabus'),
+        .describe("The subject or concept for the syllabus"),
       syllabus: z.object({
-        previousConcepts: z.array(z.string()).describe('Prerequisite concepts'),
+        previousConcepts: z.array(z.string()).describe("Prerequisite concepts"),
         currentConcepts: z
           .array(
             z.object({
-              topic: z.string().describe('Main topic'),
+              topic: z.string().describe("Main topic"),
               subtopics: z
                 .array(z.string())
-                .describe('Subtopics under this topic'),
-            })
+                .describe("Subtopics under this topic"),
+            }),
           )
-          .describe('Current concepts to learn'),
+          .describe("Current concepts to learn"),
       }),
     });
 
     const SvgGenerationSchema = z.object({
-      svg: z.string().describe('This must the code for SVG'),
+      svg: z.string().describe("This must the code for SVG"),
     });
 
     const TestQuestionSchema = z.object({
       questions: z.array(
         z.object({
-          question: z.string().describe('The actual question'),
+          question: z.string().describe("The actual question"),
           options: z
             .array(z.string())
             .length(4)
-            .describe('Four answer options'),
-          answer: z.string().describe('The correct answer'),
-        })
+            .describe("Four answer options"),
+          answer: z.string().describe("The correct answer"),
+        }),
       ),
     });
 
     const FlashcardSchema = z.object({
       flashcards: z.array(
         z.object({
-          front: z.string().describe('Question or concept for the front'),
-          back: z.string().describe('Summary or explanation for the back'),
-        })
+          front: z.string().describe("Question or concept for the front"),
+          back: z.string().describe("Summary or explanation for the back"),
+        }),
       ),
     });
 
-    // Define tools using Vercel AI SDK - Fixed inputSchema to parameters
+    // Define tools using Vercel AI SDK - Fixed inputSchema to inputSchema
     const getSyllabusTools = tool({
-      description: 'Get the syllabus for a course or subject',
+      description: "Get the syllabus for a course or subject",
       inputSchema: z.object({
-        query: z.string().min(2).describe('The subject to get syllabus for'),
+        query: z.string().min(2).describe("The subject to get syllabus for"),
       }),
-      execute: withToolTracing('getSyllabusTools', async ({ query }) => {
-        console.log('Getting syllabus for:', query);
+      execute: async ({ query }) => {
+        console.log("Getting syllabus for:", query);
 
         // Use OpenRouter with structured output
         const result = await generateObject({
-          model: tracedModel('openai/gpt-oss-120b',modelCtx),
-           maxRetries:0,
-          system:`Your role is to generate a detailed and structured syllabus in strict compliance with the provided schema.
-
-
-          ## Core Rules
-
-          1. **Interpret Vague Inputs**
-             - The student's request may be very short, unclear, or broad (e.g., "AI", "Learn Python", "Quantum Computing").
-             - Your task is to interpret the intended subject, identify its scope, and expand it into a **clear, logical learning path**.
-             - Assume no prior knowledge unless the input specifies otherwise.
-
-          2. **Previous Concepts**
-             - List all prerequisite concepts the student should know before starting the main syllabus.
-             - If the student is a beginner, include fundamental concepts needed to understand the topic.
-             - Each prerequisite must be short, clear, and foundational.
-
-          3. **Current Concepts**
-             - Organize the main syllabus into **topics** in a logical learning sequence.
-             - Under each topic, include **subtopics** that break it down into manageable learning units.
-             - Each subtopic must be specific enough to guide self-study (avoid vague terms like "basics" without context).
-
-          4. **Detail & Depth**
-             - Expand the syllabus to cover all essential areas from beginner to advanced (where applicable).
-             - Ensure subtopics follow a logical order, building from foundational ideas to more complex ones.
-             - Avoid excessive technical jargon unless it is necessary and explained through its subtopics.
-
-          5. **Output Format**
-             - Output must strictly match the schema — no additional text, comments, or formatting outside the JSON structure.
-             - Every string in previousConcepts, topic, and subtopics must be concise yet descriptive.
-
-          6. **Objective**
-             - The syllabus must be complete enough that a motivated student could follow it and gain a working understanding of the topic, starting from the prerequisites.
-             - Always aim for clarity, logical flow, and practical learning progression.
-
-          ## Output Expectation
-          - Return only a valid JSON object matching the schema.
-          - Do not include explanations, headings, or text outside the JSON.`,
+          model: google('gemini-2.5-flash'),
           schema: GetSyllabusSchema,
-
-          prompt: ` ${query}`,
+          prompt: `Generate a comprehensive syllabus for ${query}. Include prerequisite concepts and current concepts with topics and subtopics.`,
         });
 
         return JSON.stringify(result.object);
       },
-       langfuse, baseProps),
     });
 
+
+
     const webSearchTools = tool({
-      description: 'Search the web for information about a topic',
+      description: "Search the web for information about a topic",
       inputSchema: z.object({
-        query: z.string().min(2).describe('Query to search for'),
+        query: z.string().min(2).describe("Query to search for"),
       }),
-      execute:withToolTracing('webSearchTools', async ({ query })=> {
-        console.log('Web searching for:', query);
+      execute: async ({ query }) => {
+        console.log("Web searching for:", query);
 
         if (!EXA_API_KEY) {
-          return JSON.stringify({ error: 'EXA API key not configured' });
+          return JSON.stringify({ error: "EXA API key not configured" });
         }
 
         try {
           const exa = new Exa(EXA_API_KEY);
           const response = await exa.searchAndContents(query, {
-            type: 'neural',
+            type: "neural",
             numResults: 5,
             text: true,
           });
@@ -286,296 +166,121 @@ export const agent = action({
             results: response.results.map((r: any) => ({
               title: r.title,
               url: r.url,
-              content: r.text?.substring(0, 500) + '...',
+              content: r.text?.substring(0, 500) + "...",
             })),
           });
         } catch (error) {
-          console.error('Web search error:', error);
+          console.error("Web search error:", error);
           return JSON.stringify({
             error: true,
-            message: error instanceof Error ? error.message : 'Unknown error',
+            message: error instanceof Error ? error.message : "Unknown error",
           });
         }
-      },langfuse, baseProps),
+      },
     });
 
     const knowledgeSearchTools = tool({
-      description: 'Search the knowledge base for information',
+      description: "Search the knowledge base for information",
       inputSchema: z.object({
-        query: z.string().min(2).describe('Query to search knowledge base'),
+        query: z.string().min(2).describe("Query to search knowledge base"),
       }),
-      execute: withToolTracing('knowledgeSearchTools', async ({ query })=> {
-        console.log('Knowledge searching for:', query);
-
-        const result = await generateText({
-          model: tracedModel('openai/gpt-oss-120b',modelCtx),
-           maxRetries:0,
-          system:`You are an intelligent knowledge retrieval assistant.
-          Your role is to search the knowledge base and return the most relevant, accurate, and useful information in direct, clear, and well-structured text form.
-
-          ## Response Rules
-
-          1. **Understanding the Query**
-             - Interpret the user’s query accurately, even if it is vague or informal.
-             - Identify the most likely intent and context.
-             - If the query is ambiguous, prioritize the most common and educational interpretation.
-
-          2. **Information Quality**
-             - Provide factually correct, precise, and relevant answers.
-             - Cover the key points necessary for the user to fully understand the topic.
-             - Avoid irrelevant filler or generic statements.
-
-          3. **Structure & Clarity**
-             - Organize your answer logically, starting with the most important point.
-             - Use short paragraphs or lists for readability when applicable.
-             - Define any technical terms in simple language.
-
-          4. **Tone & Accessibility**
-             - Write in a clear, concise, and student-friendly tone.
-             - Assume the reader may have no prior knowledge of the topic.
-             - Avoid overly complex sentences unless necessary for accuracy.
-
-          5. **Depth & Completeness**
-             - If the query asks “what,” focus on definitions and key details.
-             - If the query asks “how,” focus on step-by-step explanations.
-             - If the query is broad, give a concise overview and note important subtopics.
-
-          6. **Prohibited Output**
-             - Do not include unrelated tangents.
-             - Do not output raw code unless specifically requested by the user.
-             - Avoid personal opinions unless explicitly asked.
-
-          ## Objective
-          The user should receive a complete, standalone answer that:
-          - Addresses their question directly.
-          - Is clear and understandable on its own.
-          - Can be read quickly but still conveys depth where needed.
-
-          ## Output Format
-          - Return only the answer text.
-          - No meta-commentary, prefaces like “Here’s your answer,” or unrelated closing statements.`,
+      execute: async ({ query }) => {
+        console.log("Knowledge searching for:", query);
+        const result = await generateObject({
+          model: google('gemini-2.5-flash'),
+          schema: GetCodeSchema,
           prompt: ` ${query}`,
         });
 
-        return result.text;
-      },langfuse, baseProps),
+        return result.object;
+      },
     });
 
     const getCodeTools = tool({
-      description: 'Get code examples for programming topics',
+      description: "Get code examples for programming topics",
       inputSchema: z.object({
-        query: z.string().min(2).describe('Programming topic to get code for'),
-        language: z.string().min(1).describe('Programming language'),
+        query: z.string().min(2).describe("Programming topic to get code for"),
+        language: z.string().min(1).describe("Programming language"),
       }),
-      execute: withToolTracing('getCodeTools', async ({ query, language })=> {
-        console.log('Getting code for:', query, 'in', language);
+      execute: async ({ query, language }) => {
+        console.log("Getting code for:", query, "in", language);
 
         const result = await generateObject({
-          model: tracedModel('openai/gpt-oss-120b',modelCtx),
-           maxRetries:0,
-          system:`You are a world-class programming tutor and code generator. Your task is to create correct, runnable code
-          examples for the given topic and language, along with a clear explanation.
-          Your output must strictly match the provided schema.
-
-          ## Code Generation Rules
-
-          1. **Interpret the Query**
-             - Understand the requested topic and programming language, even if the query is short or vague.
-             - If the topic is broad (e.g., "sorting"), pick a **representative, useful, and commonly used example**
-               (e.g., "Implementing Bubble Sort" or "Merge Sort").
-             - If the query is a specific concept (e.g., "Python list comprehension"), produce a focused example.
-
-          2. **Code Quality**
-             - Provide **complete runnable code** in the specified language — include necessary imports, setup, and function definitions.
-             - Follow **best practices** for the given language (naming conventions, indentation, style).
-             - Avoid deprecated or insecure methods.
-             - Code should be **idiomatic** for the chosen language.
-
-          3. **Explanation**
-             - The explanation should be **clear, concise, and beginner-friendly**.
-             - Explain what the code does step-by-step and why certain decisions were made.
-             - If relevant, include a brief note on alternative approaches or real-world use cases.
-
-          4. **Edge Cases & Examples**
-             - If the topic benefits from it, include simple test cases or sample inputs/outputs in the code.
-             - If handling user input or data, use safe and minimal examples.
-
-
-
-          6. **Objective**
-             - The student should be able to copy the code, run it immediately, and understand it from the explanation.
-             - The output must be useful for both beginners and intermediate learners.
-
-          ## Output Expectation
-
-          - No additional text, headings, or comments outside the JSON.`,
+          model: google('gemini-2.5-flash'),
           schema: GetCodeSchema,
-          prompt: `Qurey -  ${query} language to use -  ${language}`,
+          prompt: `Generate code for ${query} in ${language}. Include the code and a clear explanation.`,
         });
 
         return JSON.stringify(result.object);
-      },langfuse, baseProps),
+      },
     });
 
     const testTools = tool({
-      description: 'Generate test questions on a topic',
+      description: "Generate test questions on a topic",
       inputSchema: z.object({
-        topic: z.string().min(1).describe('Topic for test questions'),
-        no: z.number().min(1).max(10).describe('Number of questions'),
+        topic: z.string().min(1).describe("Topic for test questions"),
+        no: z.number().min(1).max(10).describe("Number of questions"),
       }),
-      execute: withToolTracing('testTools', async ({ topic, no })  => {
-        console.log('Generating test for:', topic, 'with', no, 'questions');
+      execute: async ({ topic, no }) => {
+        console.log("Generating test for:", topic, "with", no, "questions");
 
         const result = await generateObject({
-          model: tracedModel('openai/gpt-oss-120b',modelCtx),
-           maxRetries:0,
+          model: google('gemini-2.5-flash'),
           schema: TestQuestionSchema,
-          system: `You are a world-class test generator. Your role is to create high-quality multiple-choice test questions
-          that help students prepare effectively for exams. The questions must strictly match the provided schema.
-
-          ## Question Design Rules
-
-          1. **Coverage**
-             - Cover the most essential concepts from the given topic.
-             - If the topic is broad, distribute questions across different subareas to ensure variety.
-             - Avoid repeating similar questions.
-
-          2. **Question Quality**
-             - Questions must be **clear, unambiguous, and grammatically correct**.
-             - Each question should require thought — avoid trivial fact recall unless the topic demands it.
-             - Ensure the question tests understanding, not just memorization.
-
-          3. **Options & Correct Answer**
-             - Provide exactly **4 options** for every question.
-             - Only **1 option** must be correct.
-             - Distractors (incorrect options) must be plausible and relevant but clearly incorrect upon careful thought.
-             - Avoid “all of the above” or “none of the above” unless pedagogically necessary.
-
-          4. **Difficulty Balance**
-             - Mix **easy, medium, and slightly challenging** questions if the number of questions is more than 3.
-             - Keep wording accessible for students at the intended level.
-
-
-          5. **Objective**
-             - The resulting test should give students a reliable way to check their knowledge before an exam.
-             - Every question must test a different aspect of the topic unless the topic is very narrow.
-
-          ## Output Expectation
-          - .
-          - No additional keys, explanations, or comments,follow the given schema.`,
-          prompt: `no of question to create -  ${no}
-          topic -  ${topic}. Each question`,
+          system: `You are a world-class test generator. Your job is to create comprehensive tests based
+          on the provided topic. Remember that students will use these tests for exam preparation, so ensure
+          they cover all essential aspects of the subject matter.Always adhere precisely to the provided schema. `,
+          prompt: `Create ${no} multiple choice questions on the topic ${topic}. Each question
+          should have exactly 4 options with one correct answer.`,
         });
 
         return result.object;
-      },langfuse, baseProps),
+      },
     });
 
     const svgTool = tool({
       description:
-        'this tool is usefull to create visual represent the context by creating a SVG  diagram of that',
+        "this tool is usefull to create visual represent the context by creating a SVG  diagram of that",
       inputSchema: z.object({
         Query: z.string(),
       }),
-      execute: withToolTracing('svgTool', async ({ Query }) => {
+      execute: async ({ Query }) => {
         const result = await generateObject({
-          model: tracedModel('openai/gpt-oss-120b',modelCtx),
+          model: google('gemini-2.5-flash'),
           schema: SvgGenerationSchema,
-          system: `Your role is to generate clean, minimalist, and visually appealing SVG code based on the provided prompt or description.
-
-          Requirements:
-          1. **Background & Contrast**
-             - The SVG will be displayed on a black background. Use high-contrast, accessible colors (e.g., bright lines, text, and shapes against dark background).
-
-          2. **Layout & Spacing**
-             - The design must be **horizontally oriented** and optimized to fill half the screen width on a laptop display (approx. 600–700px wide). Height should be proportional for clarity.
-             - Maintain generous spacing between elements to avoid visual crowding.
-             - Avoid small, cramped shapes or text that becomes illegible when scaled.
-
-          3. **Lines & Connections**
-             - When connecting or joining elements, route lines around shapes instead of passing through them.
-             - Use smooth curves or clear right-angle connectors to preserve readability.
-             - Ensure no connecting line overlaps or obscures important information or labels.
-
-          4. **Clarity & Minimalism**
-             - Minimize unnecessary details while preserving clarity.
-             - Use consistent stroke widths and font sizes.
-             - Align text and shapes neatly to create a balanced composition.
-
-          5. **Output Rules**
-             - Output **only** the SVG markup—no explanations, comments, or extra text.
-             - Ensure the SVG is valid and ready for direct embedding in HTML.
-
-          Objective: The result should be a clear, aesthetically balanced SVG diagram that is easy to interpret at a glance, with no overlapping text, lines, or shapes that could reduce legibility.`,
+          system: `Your role is to generate minimalist SVG code based on the provided prompt or description.
+          The SVG will be displayed on a black background, so prioritize high contrast and accessibility in
+          your design choices. Output strictly the SVG markup; do not include any explanations, comments, or additional text.
+          Always adhere precisely to the provided schema, The SVG must be horizontally oriented and designed to fill half the screen width on a laptop display, with any appropriate height.`,
           prompt: `${Query}`,
         });
         return result.object;
-      },langfuse, baseProps),
+      },
     });
 
     const flashcardsTools = tool({
-      description: 'Create flashcards for studying a topic',
+      description: "Create flashcards for studying a topic",
       inputSchema: z.object({
-        query: z.string().min(2).describe('Topic for flashcards'),
-        no: z.number().min(1).max(3).describe('Number of flashcards'),
+        query: z.string().min(2).describe("Topic for flashcards"),
+        no: z.number().min(1).max(3).describe("Number of flashcards"),
       }),
-      execute: withToolTracing('flashcardsTools', async ({ query, no }) => {
-        console.log('Creating flashcards for:', query, 'count:', no);
+      execute: async ({ query, no }) => {
+        console.log("Creating flashcards for:", query, "count:", no);
 
         const result = await generateObject({
-          model: tracedModel('openai/gpt-oss-120b',modelCtx),
-          system:`Your role is to create clear, accurate, and engaging flashcards for studying a given topic.
-          The flashcards must help the student actively recall and understand key concepts.
-          Your output must strictly match the provided FlashcardSchema.
-
-          ## Rules for Flashcard Creation
-
-          1. **Input Understanding**
-             - The "query" may be broad (e.g., "AI") or specific (e.g., "photosynthesis in plants").
-             - Determine the key concepts most important for learning or recalling the topic.
-             - Select concepts that will help the student understand fundamentals as well as slightly deeper details.
-
-          2. **Flashcard Quality**
-             - The front must be a **clear and specific** question, term, or prompt that encourages active recall.
-             - The back must contain a **concise, accurate answer** or explanation that fully addresses the front.
-             - Keep wording student-friendly and easy to read.
-             - Avoid overly long sentences; focus on clarity and retention.
-
-          3. **Question Types**
-             - Use a mix of formats where appropriate:
-               - Direct questions (e.g., "What is ...?")
-               - Fill-in-the-blank
-               - Term → definition
-               - Concept → explanation
-             - Avoid yes/no questions unless they test an important fact.
-
-          4. **Depth & Relevance**
-             - Ensure flashcards cover the **most essential points** for the given number requested.
-             - If the topic is technical, balance basic definitions with slightly deeper or applied questions.
-
-          5. **Formatting & Output**
-             - Always produce exactly the number of flashcards requested in the "no" parameter.
-             - Output must be **only** valid JSON matching the schema — no extra text, explanations, or formatting.
-             - The "front" and "back" must each be a single string; no markdown, bullet points, or nested formatting.
-
-          6. **Objective**
-             - The student should be able to use the generated flashcards immediately for active recall practice.
-             - The flashcards must make sense even if the student has no other reference material.`,
+          model: google('gemini-2.5-flash'),
           schema: FlashcardSchema,
-          prompt: `number to create -  ${no} qurey - ${query}.`,
+          prompt: `Generate ${no} flashcards on the topic ${query}. Each flashcard should have a clear question/concept on the front and a concise answer/explanation on the back.`,
         });
 
         return JSON.stringify(result.object);
-      },langfuse, baseProps),
+      },
     });
-
-
-
     // now we start the proccess of sending each stage into your AI agent which in return genrates the slides
 
     const stages = course.course?.stages;
     if (!Array.isArray(stages) || stages.length === 0) {
-      throw new Error('No stages found for the course.');
+      throw new Error("No stages found for the course.");
     }
 
     const stageIds = [];
@@ -584,194 +289,89 @@ export const agent = action({
       const stagePrompt = `You are SphereAI, an advanced educational agent. Your mission is to produce a comprehensive, multi-slide learning module for the following stage of a course:
         Title: ${stage.title}
       Purpose: ${stage.purpose}
-      Topics: ${stage.include.join(', ')}
+      Topics: ${stage.include.join(", ")}
       Outcome: ${stage.outcome}
-      Discussion area: ${stage.discussion_prompt || ''}`;
-
-      // Create trace for this stage (outside try block for error handling)
-      const stageTrace = langfuse.trace({
-        name: `stage-${stage.title}`,
-        userId: modelCtx.userId,
-        metadata: {
-          stage_title: stage.title,
-          ...baseProps,
-        },
-      });
-
+      Discussion area: ${stage.discussion_prompt || ""}`;
       try {
-        const answer = await generateText({
-          model: tracedModel('openai/gpt-oss-120b',modelCtx),
-          experimental_output: Output.object({
-            schema: AgentOutputSchema,
-          }),
-          providerOptions: {
-              groq: {
-                reasoningFormat: 'parsed',
-                reasoningEffort: 'high',
-                parallelToolCalls: true, // Enable parallel function calling (default: true)
-                user: userId.subject, // Unique identifier for end-user (optional)
-              },
-            },
-            maxRetries:0,
-          experimental_telemetry: {
-            isEnabled: true,
-            functionId: `stage-${stage.title}`,
-            metadata: {
-              stage_title: stage.title,
-              ...baseProps,
-            },
-          },
-          system: `You are SphereAI — an advanced, structured educational content generator.
-          Your mission is to produce a comprehensive, multi-slide learning module for any topic a student requests, by orchestrating your available tools in a logical sequence to create an engaging, easy-to-follow learning experience.
+        // Use streamText with tools for better debugging and control
+        const streamResult = streamText({
+          model: google('gemini-2.5-flash'),
+// Allow multiple steps for tool usage and final generation
+        system: `You are SphereAI, an advanced educational agent. Your mission is to produce a comprehensive, multi-slide learning module for any topic a student asks about.
 
-          Workflow & Tool Usage
+        CRITICAL: You MUST follow this exact workflow:
 
-          When a student provides a topic:
+        PHASE 1 - INFORMATION GATHERING (Steps 1-10):
+        Use your available tools strategically (don't use all tools at once):
+        1. Use "getSyllabusTools" to get a detailed syllabus
+        2. Use "webSearchTools" for 1-2 targeted searches (not exhaustive)
+        3. Use "getCodeTools" if the topic involves programming
+        4. Use "svgTool" for 1-2 key visual diagrams
+        5. Use "flashcardsTools" for core concepts (max 3 flashcards)
+        6. Use "testTools" for assessment questions (max 5 questions)
 
-          Generate the Learning Roadmap
+        PHASE 2 - SYNTHESIS AND RESPONSE (Steps 11-15):
+        After gathering tool results, you MUST:
+        1. Analyze all the tool results you received
+        2. Synthesize the information into a coherent learning experience
+        3. Generate a comprehensive text response explaining the learning module
+        4. Format everything into the required JSON structure
 
-          Call getSyllabusTools to produce a detailed, structured syllabus covering prerequisite concepts and current learning concepts.
-
-          Use this syllabus to guide slide sequencing and topic breakdown.
-
-          Visual Support
-
-          For each major concept, use svgTool to generate a clear, horizontally oriented, high-contrast SVG diagram.
-
-          Always provide svgTool with a detailed and explicit prompt describing:
-
-          The concept to illustrate
-
-          Visual structure/layout
-
-          Relationships between elements
-
-          Avoiding any connecting lines crossing over key content
-
-          Do NOT create SVGs for slides that are purely test, flashcard, table, or code examples.
-
-          Key Concept Reinforcement
-
-          Use flashcardsTools to create up to 3 high-quality flashcards per dedicated flashcard slide.
-
-          Each flashcard must have a clear, concise question on the front and a precise answer on the back.
-
-          Assessment
-
-          Use testTools to create up to 10 multiple-choice questions for a dedicated test slide.
-
-          Each question must have exactly 4 options and one correct answer.
-
-          Ensure test questions cover all essential concepts in the learning module.
-
-          Code Examples (if relevant)
-
-          If the topic is programming-related, use getCodeTools to produce:
-
-          Clean, well-commented code
-
-          A short, clear explanation of what the code does
-
-          Always place this in a dedicated code slide.
-
-          Enrichment & Extra Context
-
-          Use knowledgeSearchTools and/or webSearchTools to gather additional background, examples, and explanations that improve clarity and context.
-
-          Use only reliable and educationally relevant details.
-
-          Slide Construction Rules
-
-          Main Content Slides
-
-          Title: Clear and descriptive
-
-          Subtitles: One-line summaries
-
-          Content: Max 180 words, written in clear, student-friendly markdown
-
-          SVG: From svgTool when relevant
-
-          Links: 2–3 relevant external resources
-
-          Bullet Points: Highlight key takeaways
-
-          YoutubeSearchText: Helpful query for further exploration
-
-          Flashcard Slides
-
-          type: "flashcard"
-
-          Only contain flashcards from flashcardsTools
-
-          No main SVG or long content
-
-          Test Slides
-
-          type: "test"
-
-          Only contain test questions from testTools
-
-          Code Slides
-
-          Contain code from getCodeTools in { language, content } format
-
-          Include a short explanation in content
-
-          User Experience Priority
-
-          Order slides so the learning flow goes:
-
-          Overview / Introduction
-
-          Concept Slides (with SVGs)
-
-          Flashcard Slide
-
-          Test Slide
-
-          Optional Code Slide (if applicable)
-
-          Keep language engaging but concise.
-
-          Avoid repeating information across slides.
-
-          Output Rules
-
-          Output ONLY valid JSON in the following structure:
-
+        MANDATORY: Your final response must contain BOTH explanatory text AND a valid JSON object that matches this structure:
           {
-          "slides": [
-          {
-          "name": "slide 1",
-          "title": "Main title",
-          "subTitles": "Brief subtitle",
-          "svg": "<svg>...</svg>",
-          "content": "Markdown content (max 180 words)",
-          "links": ["https://example.com"],
-          "youtubeSearchText": "topic keyword search",
-          "code": {
-          "language": "javascript",
-          "content": "console.log('Hello World');"
-          },
-          "tables": "Optional markdown table",
-          "bulletPoints": ["Point 1", "Point 2"],
-          "flashcardData": [
-          { "question": "?", "answer": "..." }
-          ],
-          "testQuestions": [
-          { "question": "?", "options": ["A","B","C","D"], "answer": "A" }
-          ],
-          "type": "markdown"
-          }
-          ]
+            "slides": [
+              {
+                "name": "slide 1",
+                "title": "Main title of the slide",
+                "subTitles": "Brief subtitle or summary",
+                "svg": "<svg>...</svg>",
+                "content": "Main explanation in markdown (max 180 words)",
+                "links": ["https://example.com/resource1", "https://example.com/resource2"],
+                "youtubeSearchText": "Search query for YouTube exploration",
+                "code": {
+                  "language": "javascript",
+                  "content": "console.log('Hello World');"
+                },
+                "tables": "Optional table in markdown format",
+                "bulletPoints": ["Key point 1", "Key point 2"],
+                "flashcardData": [
+                  {
+                    "question": "What is X?",
+                    "answer": "X is..."
+                  }
+                ],
+                "testQuestions": [
+                  {
+                    "question": "What is the correct answer?",
+                    "options": ["A", "B", "C", "D"],
+                    "answer": "A"
+                  }
+                ],
+                "type": "markdown"
+              }
+            ]
           }
 
-          No additional commentary, headers, or explanations outside the JSON.
+          IMPORTANT: You must use the results from your tool calls to populate the fields:
+          - Use SVG diagrams from svgTool results for the "svg" field
+          - Use flashcard data from flashcardsTools results for the "flashcardData" field
+          - Use test questions from testTools results for the "testQuestions" field
+          - Use code examples from getCodeTools results for the "code" field
+          - Generate SVG diagrams that are relevant to the topic and enhance understanding
+          - You don't need to show SVG diagrams for test slides, flashcard slides, table slides, or code slides
+          - Focus on creating SVG diagrams that visually represent concepts, processes, or structures
+          - always make sure that you render the test and flash card in the new slide, so that we can provide better learning experience
+          - always remember to keep the user experience high so structure the content in a way that is easy to understand and follow
+          - When creating test questions, always create a dedicated slide with type "test" for the test questions
+          - When creating flashcards, always create a dedicated slide with type "flashcard" for the flashcards
+          - Structure the content so that test questions and flashcards are on separate slides from the main content
 
-          All tool outputs must be parsed and integrated into the final JSON structure.
+          FINAL REQUIREMENT: You MUST NOT end with just tool calls. After using tools, you MUST generate a final comprehensive text response that:
+          1. Summarizes what you learned from the tools
+          2. Explains the learning module structure
+          3. Presents a complete JSON object with all gathered information
 
-          Maintain strict JSON validity — no trailing commas or formatting errors.`,
+          If you finish without generating final text, you have FAILED your mission.`,
           prompt: stagePrompt,
           tools: {
             getSyllabusTools,
@@ -782,47 +382,331 @@ export const agent = action({
             flashcardsTools,
             svgTool,
           },
-          toolChoice:'auto'
+          onChunk({ chunk }) {
+            console.log(`Chunk type: ${chunk.type}`);
+
+            // Generic chunk inspection to avoid TypeScript errors
+            const chunkAny = chunk as any;
+
+            switch (chunk.type) {
+              case 'text-delta':
+                if (chunkAny.textDelta) {
+                  console.log(`Text delta: "${chunkAny.textDelta}"`);
+                }
+                break;
+
+              case 'tool-call':
+                console.log(`Tool call detected`);
+                if (chunkAny.toolName) {
+                  console.log(`  Tool name: ${chunkAny.toolName}`);
+                }
+                if (chunkAny.input) {
+                  console.log(`  Input:`, chunkAny.input);
+                }
+                if (chunkAny.args) {
+                  console.log(`  Args:`, chunkAny.args);
+                }
+                break;
+
+              case 'tool-result':
+                console.log(`Tool result detected`);
+                if (chunkAny.toolName) {
+                  console.log(`  Tool name: ${chunkAny.toolName}`);
+                }
+                const result = chunkAny.result || chunkAny.toolResult || chunkAny.data;
+                if (result) {
+                  console.log(`  Result type: ${typeof result}`);
+                  if (typeof result === 'string') {
+                    console.log(`  Result preview: ${result.substring(0, 200)}...`);
+                  } else {
+                    console.log(`  Result data:`, JSON.stringify(result, null, 2).substring(0, 500));
+                  }
+                } else {
+                  console.log(`  No result data found`);
+                }
+                break;
+
+              default:
+                // Log any other chunk types with their available properties
+                console.log(`Other chunk type: ${chunk.type}`);
+                console.log(`Available properties:`, Object.keys(chunkAny));
+                break;
+            }
+          },
+          onFinish({ text, toolCalls, toolResults, steps, finishReason, usage }) {
+            console.log('=== STREAM FINISHED ===');
+            console.log(`Final text length: ${text?.length || 0}`);
+            console.log(`Tool calls: ${toolCalls?.length || 0}`);
+            console.log(`Tool results: ${toolResults?.length || 0}`);
+            console.log(`Steps: ${steps?.length || 0}`);
+            console.log(`Finish reason: ${finishReason}`);
+            console.log(`Usage:`, usage);
+
+            // Log detailed tool results
+            if (toolResults && toolResults.length > 0) {
+              console.log('=== DETAILED TOOL RESULTS ===');
+              console.log('Raw tool results structure:', JSON.stringify(toolResults, null, 2));
+              toolResults.forEach((toolResult, index) => {
+                // Defensive access for tool result properties
+                const resultData = (toolResult as any).result || (toolResult as any).data || (toolResult as any).output;
+                const toolName = (toolResult as any).toolName || `Tool${index + 1}`;
+
+                console.log(`Tool ${index + 1}: ${toolName}`);
+                if (typeof resultData === 'string') {
+                  console.log(`  Result (string): ${resultData.substring(0, 300)}...`);
+                } else if (resultData) {
+                  console.log(`  Result (object):`, JSON.stringify(resultData, null, 2));
+                } else {
+                  console.log(`  Result: No data found`);
+                  console.log(`  Available properties:`, Object.keys(toolResult));
+                }
+              });
+            }
+
+            // Log step details if available
+            if (steps && steps.length > 0) {
+              console.log('=== STEP DETAILS ===');
+              steps.forEach((step, index) => {
+                console.log(`Step ${index + 1}:`);
+                console.log(`  Text length: ${step.text?.length || 0}`);
+                console.log(`  Tool calls: ${step.toolCalls?.length || 0}`);
+                console.log(`  Tool results: ${step.toolResults?.length || 0}`);
+                console.log(`  Finish reason: ${step.finishReason || 'none'}`);
+                if (step.text && step.text.length > 0) {
+                  console.log(`  Text preview: ${step.text.substring(0, 200)}...`);
+                }
+              });
+            }
+          },
+          onError({ error }) {
+            console.error('Stream error:', error);
+          }
         });
 
-        console.log('########################################################');
-        console.log('the answer is', answer.text);
-        console.log('########################################################');
+        // Wait for the stream to complete and get final results
+        const finalText = await streamResult.text;
+        const toolCalls = await streamResult.toolCalls;
+        const toolResults = await streamResult.toolResults;
+        const steps = await streamResult.steps;
+        const finishReason = await streamResult.finishReason;
+        const usage = await streamResult.usage;
+
+        // Handle case where model stops at tool-calls without generating final text
+        let synthesizedText = finalText;
+        if (finishReason === 'tool-calls' && (!finalText || finalText.trim().length === 0)) {
+          console.log("🔄 MODEL STOPPED AT TOOL-CALLS - FORCING SYNTHESIS CONTINUATION");
+
+          if (toolResults && toolResults.length > 0) {
+            // Create synthesis prompt from tool results
+            const toolSummaryForSynthesis = toolResults.map((toolResult, index) => {
+              const toolName = (toolResult as any).toolName || `Tool${index + 1}`;
+              const resultData = (toolResult as any).result || (toolResult as any).data || (toolResult as any).output;
+
+              if (typeof resultData === 'string') {
+                return `${toolName}: ${resultData}`;
+              } else if (resultData) {
+                return `${toolName}: ${JSON.stringify(resultData, null, 2)}`;
+              }
+              return `${toolName}: No data`;
+            }).join('\n\n');
+
+            // Force synthesis with a direct continuation call
+            console.log("🚀 STARTING SYNTHESIS PHASE...");
+            const synthesisResult = streamText({
+              model: google('gemini-2.5-flash'),
 
 
+              system: `You are completing a learning module generation task. You have already gathered information using tools, and now you MUST synthesize this information into a final response.
 
-        const parsed = AgentOutputSchema.safeParse(answer.text);
-        if (!parsed.success) {
-          stageTrace.event({
-            name: 'validation-error',
-            input: {
-              stage_title: stage.title,
-              issues: parsed.error.issues,
-            },
-            metadata: {
-              ...baseProps,
-              stage_title: stage.title,
-            },
+              CRITICAL: You must generate a comprehensive text response that explains the learning module and includes a complete JSON structure. DO NOT make any more tool calls - just synthesize the existing information.`,
+              prompt: `Based on the following tool results, create a comprehensive learning module response for "${stage.title}":
+
+${toolSummaryForSynthesis}
+
+Your response must include:
+1. An explanation of what the learning module covers
+2. How the different components work together
+3. A complete JSON structure with all the slides
+
+Generate a complete, detailed response now.`,
+            });
+
+            synthesizedText = await synthesisResult.text;
+            console.log(`✅ SYNTHESIS COMPLETE - Generated ${synthesizedText?.length || 0} characters`);
+          }
+        }
+
+        console.log("########################################################")
+        console.log("Final text:", synthesizedText);
+        console.log("Final text length:", synthesizedText?.length || 0);
+        console.log("Original finish reason:", finishReason);
+        console.log("Tool calls count:", toolCalls?.length || 0);
+        console.log("Tool results count:", toolResults?.length || 0);
+        console.log("Steps count:", steps?.length || 0);
+        console.log("Finish reason:", finishReason);
+        console.log("########################################################")
+
+        // Debug actual structure of results
+        console.log("=== RAW RESULTS INSPECTION ===");
+        console.log("Tool results type:", typeof toolResults);
+        console.log("Tool results array?:", Array.isArray(toolResults));
+        if (toolResults && toolResults.length > 0) {
+          console.log("First tool result keys:", Object.keys(toolResults[0]));
+          console.log("First tool result:", JSON.stringify(toolResults[0], null, 2));
+        }
+
+        // Additional debugging for empty text cases
+        if (!finalText || finalText.trim().length === 0) {
+          console.log("=== EMPTY TEXT ANALYSIS ===");
+          console.log("Final text is empty or whitespace only");
+          console.log("Checking steps for any text content...");
+
+          if (steps && steps.length > 0) {
+            steps.forEach((step, index) => {
+              if (step.text && step.text.trim().length > 0) {
+                console.log(`Step ${index + 1} has text:`, step.text.substring(0, 100));
+              }
+            });
+          }
+        }
+
+        // Enhanced fallback: if no final text but we have tool results, construct response from tools
+        let textToProcess = synthesizedText;
+        if (!synthesizedText || synthesizedText.trim().length === 0) {
+          console.log("❌ MODEL FAILED TO GENERATE FINAL TEXT - ACTIVATING FALLBACK");
+
+          if (toolResults && toolResults.length > 0) {
+            console.log(`Processing ${toolResults.length} tool results for fallback response`);
+
+            // Create a comprehensive response from all tool results
+            const toolSummary = toolResults.map((toolResult, index) => {
+              // Defensive access for tool result properties
+              const toolName = (toolResult as any).toolName || `Tool${index + 1}`;
+              const resultData = (toolResult as any).result || (toolResult as any).data || (toolResult as any).output;
+
+              let toolData;
+              if (typeof resultData === 'string') {
+                toolData = resultData;
+              } else if (resultData) {
+                toolData = JSON.stringify(resultData, null, 2);
+              } else {
+                toolData = 'No result data available';
+              }
+
+              return `=== ${toolName.toUpperCase()} RESULTS ===\n${toolData}`;
+            }).join('\n\n');
+
+            textToProcess = `# Learning Module: ${stage.title}
+
+## Overview
+This comprehensive learning module was created based on extensive research and content generation. Below is all the gathered information that needs to be formatted into educational slides.
+
+## Purpose
+${stage.purpose}
+
+## Learning Outcomes
+${stage.outcome}
+
+## Content Details
+${toolSummary}
+
+## Instructions for Formatting
+Please structure this information into a comprehensive JSON learning module with multiple slides covering:
+1. Introduction and overview slides
+2. Core concept slides with explanations
+3. Visual diagram slides (using the generated SVGs)
+4. Code example slides (if applicable)
+5. Interactive flashcard slides
+6. Assessment/quiz slides
+
+Ensure each slide has appropriate content, maintains educational flow, and provides a rich learning experience.`;
+          } else {
+            console.log("❌ NO TOOL RESULTS AVAILABLE - USING MINIMAL FALLBACK");
+            textToProcess = `# Learning Module: ${stage.title}
+
+## Request Details
+- Title: ${stage.title}
+- Purpose: ${stage.purpose}
+- Topics to include: ${stage.include.join(", ")}
+- Expected outcome: ${stage.outcome}
+
+## Instructions
+Create a comprehensive learning module with multiple educational slides covering the above topic. Include:
+- Introductory content explaining the subject
+- Core concepts broken down into digestible parts
+- Visual diagrams where appropriate
+- Practical examples or code snippets if relevant
+- Interactive elements like flashcards
+- Assessment questions to test understanding
+
+Structure this as engaging educational content suitable for learners at various levels.`;
+          }
+        }
+
+        console.log("=== TEXT TO PROCESS ===");
+        console.log(`Text length: ${textToProcess?.length || 0}`);
+        console.log(`Text preview: ${textToProcess?.substring(0, 300)}...`);
+
+        const result = await generateObject({
+          model: google('gemini-2.5-flash'),
+          schema: AgentOutputSchema,
+          maxRetries: 3,
+          prompt: `Create a comprehensive learning module by formatting the following information into the valid schema.
+
+CONTENT TO PROCESS:
+${textToProcess}
+
+REQUIREMENTS:
+- Create multiple engaging slides (minimum 5, maximum 15)
+- Include diverse slide types: content, visual, interactive, assessment
+- Use any SVG diagrams that were generated in appropriate slides
+- Include flashcards and quiz questions in dedicated slides
+- Ensure educational progression and flow
+- Make content accessible and engaging
+- Fill in any missing information with educationally appropriate content`,
+          system: `You are an educational content formatter. Your task is to convert raw educational information into a structured learning module.
+
+CRITICAL REQUIREMENTS:
+1. Create a comprehensive set of slides that tell a complete educational story
+2. Use ALL available information from the provided content
+3. Infer and add appropriate educational content where needed
+4. Ensure each slide has substantive, valuable content
+5. Create proper educational flow from introduction to assessment
+6. Use appropriate slide types for different content (markdown, flashcard, test, etc.)
+7. Make the content engaging and learner-friendly
+8. NEVER create empty or placeholder slides
+
+Your output must strictly follow the provided schema structure.`
+        });
+
+        console.log("=== GENERATE OBJECT RESULT ===");
+        console.log("Generated object keys:", Object.keys(result.object));
+        if (result.object.slides) {
+          console.log(`Generated slides count: ${result.object.slides.length}`);
+          result.object.slides.forEach((slide, index) => {
+            console.log(`Slide ${index + 1}: ${slide.title || 'No title'} (type: ${slide.type || 'undefined'})`);
           });
-          console.error('Invalid structured output:', parsed.error.format());
-          console.log(
-            '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@'
-          );
-          console.log(
-            'Raw structured output:',
-            JSON.stringify(answer.text, null, 2)
-          );
-          console.log(
-            '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@'
-          );
+        }
+        console.log("Full result object:", JSON.stringify(result.object, null, 2).substring(0, 1000));
 
+
+
+        const parsed = AgentOutputSchema.safeParse(result.object);
+        if (!parsed.success) {
+          console.error("Invalid structured output:", parsed.error.format());
+          console.log("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+          console.log(
+            "Raw structured output:",
+            JSON.stringify(result.object, null, 2),
+          );
+          console.log("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
 
           // Log specific field errors for debugging
           if (parsed.error.issues) {
-            console.error('Validation issues:', parsed.error.issues);
+            console.error("Validation issues:", parsed.error.issues);
           }
 
-          throw new Error('Agent returned invalid structured content.');
+          throw new Error("Agent returned invalid structured content.");
         }
 
         const stageId = await ctx.runMutation(api.stage.createstage, {
@@ -832,19 +716,10 @@ export const agent = action({
         });
         stageIds.push(stageId);
       } catch (error) {
-        stageTrace.event({
-          name: 'stage-error',
-          input: {
-            stage_title: stage.title,
-            error_message: error instanceof Error ? error.message : String(error),
-            error_name: error instanceof Error ? error.name : 'UnknownError',
-          },
-          metadata: baseProps,
-        });
-        console.error('Agent processing error:', error);
+        console.error("Agent processing error:", error);
       }
     }
- await langfuse.flushAsync()
+
     return stageIds;
   },
 });

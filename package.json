@@ -9,11 +9,13 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@ai-sdk/google": "^2.0.6",
     "@ai-sdk/groq": "^2.0.8",
     "@ai-sdk/openai": "^2.0.11",
     "@clerk/nextjs": "^6.30.1",
     "@convex-dev/persistent-text-streaming": "^0.2.3",
     "@helicone/helpers": "^1.6.0",
+    "@openrouter/ai-sdk-provider": "^1.1.2",
     "@opentelemetry/api-logs": "^0.57.2",
     "@opentelemetry/instrumentation": "^0.57.2",
     "@opentelemetry/sdk-logs": "^0.57.2",
