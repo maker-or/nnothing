@@ -7,6 +7,7 @@ import { generateObject, tool, generateText, streamText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { z } from "zod";
 import { google , createGoogleGenerativeAI} from '@ai-sdk/google';
+import { Langfuse } from "langfuse";
 
 import Exa from "exa-js";
 
@@ -56,6 +57,21 @@ export const agent = action({
       baseURL:"https://generativelanguage.googleapis.com/v1beta",
       apiKey:geminikey
     });
+
+    const langfuse = new Langfuse({
+      secretKey: process.env.LANGFUSE_SECRET_KEY!,
+      publicKey: process.env.LANGFUSE_PUBLIC_KEY!,
+      baseUrl: process.env.LANGFUSE_BASEURL ?? "https://cloud.langfuse.com"
+    });
+
+
+    const tracedModel = (modelName: string, ctx: { userId: string; courseId: string }) => {
+      console.log('tracedModel called with:', modelName);
+      // Route google/gemini models via openrouter for main orchestrator
+
+      console.log('Routing to GroqClient:', modelName);
+      return google(modelName);
+    };
 
 
     // Environment variables for external services

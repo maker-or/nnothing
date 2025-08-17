@@ -13,7 +13,8 @@ import { CheckCircle2, Circle, CircleDotDashed } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
-import rehypeHighlight from "rehype-highlight";
+import { CodeBlock, CodeBlockCopyButton } from "./ai-elements/code-block";
+
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
@@ -554,39 +555,46 @@ const ContentBlock: React.FC<{
 
   // Enhanced markdown components
   const markdownComponents: Components = {
-    code({ node, className, children, ...props }) {
-      const codeContent = sanitizeContent(children).replace(/\n$/, "");
-      const isInlineCode =
-        !className &&
-        node?.tagName === "code" &&
-        (node as { parent?: { tagName?: string } })?.parent?.tagName !==
-          "pre" &&
-        !codeContent.includes("\n");
+    code(props) {
+      const anyProps = props as any;
+      const { node, className, children } = anyProps;
+      const { inline: _inline, ...rest } = anyProps;
+      const raw = sanitizeContent(children).replace(/\n$/, "");
 
-      if (isInlineCode) {
+      const isInline =
+        anyProps?.inline ??
+        (!className &&
+          (node as any)?.tagName === "code" &&
+          (node as any)?.parent?.tagName !== "pre" &&
+          !raw.includes("\n"));
+
+      if (isInline) {
         return (
           <code
-            className="rounded-md bg-gray-700/50 px-1.5 py-1 font-mono text-red-300 text-sm"
-            {...props}
+            className="not-prose rounded bg-white/10 px-1 py-0.5 font-mono text-xs text-white/90"
+            {...rest}
           >
-            {codeContent}
+            {raw}
           </code>
         );
       }
 
+      const hinted =
+        (node as any)?.lang ||
+        /language-([\w-]+)/.exec(className || "")?.[1];
+      const language = (hinted || slide.code?.language || "text").trim();
+
       return (
-        <code className={className} {...props}>
-          {codeContent}
-        </code>
+        <div className="not-prose">
+          <CodeBlock code={raw} language={language}>
+            <CodeBlockCopyButton />
+          </CodeBlock>
+        </div>
       );
     },
 
     pre({ children }) {
-      return (
-        <pre className="my-4 overflow-x-auto rounded-lg border border-gray-700/50 bg-[#1e1e1e] p-4">
-          {children}
-        </pre>
-      );
+      return <div className="my-4 not-prose">{children}</div>;
     },
 
     table({ children }) {
@@ -821,7 +829,7 @@ const ContentBlock: React.FC<{
             <div className="prose prose-lg prose-invert mt-6 max-w-none text-white">
               <ReactMarkdown
                 components={markdownComponents}
-                rehypePlugins={[rehypeKatex, rehypeHighlight, rehypeRaw]}
+                rehypePlugins={[rehypeKatex, rehypeRaw]}
                 remarkPlugins={[remarkGfm, remarkMath]}
               >
                 {textContent}
@@ -862,7 +870,7 @@ const ContentBlock: React.FC<{
             <div className="prose prose-lg prose-invert mt-6 max-w-none text-white">
               <ReactMarkdown
                 components={markdownComponents}
-                rehypePlugins={[rehypeKatex, rehypeHighlight, rehypeRaw]}
+                rehypePlugins={[rehypeKatex, rehypeRaw]}
                 remarkPlugins={[remarkGfm, remarkMath]}
               >
                 {textContent}
@@ -910,7 +918,7 @@ const ContentBlock: React.FC<{
             <div className="prose prose-lg prose-invert max-w-none text-white">
               <ReactMarkdown
                 components={markdownComponents}
-                rehypePlugins={[rehypeKatex, rehypeHighlight, rehypeRaw]}
+                rehypePlugins={[rehypeKatex, rehypeRaw]}
                 remarkPlugins={[remarkGfm, remarkMath]}
               >
                 {textContent}
@@ -972,7 +980,7 @@ const ContentBlock: React.FC<{
                     },
                     pre: () => null,
                   }}
-                  rehypePlugins={[rehypeKatex, rehypeHighlight, rehypeRaw]}
+                  rehypePlugins={[rehypeKatex, rehypeRaw]}
                   remarkPlugins={[remarkGfm, remarkMath]}
                 >
                   {textContent}
@@ -1011,41 +1019,38 @@ const ContentBlock: React.FC<{
 
               {hasActualCodeContent && (
                 <div className="mb-6">
-                  <ReactMarkdown
-                    components={markdownComponents}
-                    rehypePlugins={[rehypeHighlight]}
-                    remarkPlugins={[remarkGfm]}
-                  >
-                    {`\`\`\`${slide.code?.language || ""}\n${slide.code?.content}\n\`\`\``}
-                  </ReactMarkdown>
+                  <div className="mb-6 not-prose">
+                    <CodeBlock code={slide.code?.content || ""} language={(slide.code?.language || "text").trim()}>
+                      <CodeBlockCopyButton />
+                    </CodeBlock>
+                  </div>
                 </div>
               )}
 
               {!hasActualCodeContent && combinedContent.includes("```") && (
                 <div className="mb-6">
-                  <div className="prose prose-lg prose-invert max-w-none">
-                    <ReactMarkdown
-                      components={{
-                        ...markdownComponents,
-                        p: () => null,
-                        h1: () => null,
-                        h2: () => null,
-                        h3: () => null,
-                        h4: () => null,
-                        ul: () => null,
-                        ol: () => null,
-                        li: () => null,
-                        blockquote: () => null,
-                        a: () => null,
-                        strong: () => null,
-                        em: () => null,
-                      }}
-                      rehypePlugins={[rehypeKatex, rehypeHighlight, rehypeRaw]}
-                      remarkPlugins={[remarkGfm, remarkMath]}
-                    >
-                      {combinedContent}
-                    </ReactMarkdown>
-                  </div>
+                  {(() => {
+                    const blocks = [] as Array<{ lang: string; code: string }>;
+                    const fence = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g;
+                    let m: RegExpExecArray | null;
+                    while ((m = fence.exec(combinedContent)) !== null) {
+                      const lang = (m[1] || slide.code?.language || "text").trim();
+                      const code = (m[2] || "").replace(/\n$/, "");
+                      blocks.push({ lang, code });
+                    }
+                    if (blocks.length === 0) return null;
+                    return (
+                      <div className="space-y-4">
+                        {blocks.map((b, i) => (
+                          <div className="not-prose" key={i}>
+                            <CodeBlock code={b.code} language={b.lang}>
+                              <CodeBlockCopyButton />
+                            </CodeBlock>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>

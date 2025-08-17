@@ -1,18 +1,22 @@
 "use client";
 
-import { redirect } from "next/navigation";
-
-import { useConvexAuth } from "convex/react";
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useConvexAuth } from "convex/react";
+import Landing from "../components/Landing";
 
 export default function Home() {
   const { isAuthenticated, isLoading } = useConvexAuth();
+  const router = useRouter();
+
   useEffect(() => {
-    if (isAuthenticated) {
-      redirect("/learning");
-    } else {
-      redirect("/select");
+    if (!isLoading && isAuthenticated) {
+      router.replace("/learning");
     }
-  }, [isAuthenticated, isLoading]);
-  return null;
+  }, [isAuthenticated, isLoading, router]);
+
+  if (isLoading) return null;
+  if (isAuthenticated) return null;
+
+  return <Landing />;
 }

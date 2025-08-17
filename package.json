@@ -34,6 +34,7 @@
     "convex": "^1.25.4",
     "date-fns": "^4.1.0",
     "exa-js": "^1.8.27",
+    "framer-motion": "^12.23.12",
     "harden-react-markdown": "^1.0.4",
     "langfuse": "^3.38.4",
     "langfuse-vercel": "^3.38.4",
