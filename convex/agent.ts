@@ -262,12 +262,28 @@ export const agent = action({
       }),
       execute: async ({ Query }) => {
         const result = await generateObject({
-          model: google('gemini-2.5-flash'),
+          model: google('gemini-2.5-pro'),
           schema: SvgGenerationSchema,
-          system: `Your role is to generate minimalist SVG code based on the provided prompt or description.
-          The SVG will be displayed on a black background, so prioritize high contrast and accessibility in
-          your design choices. Output strictly the SVG markup; do not include any explanations, comments, or additional text.
-          Always adhere precisely to the provided schema, The SVG must be horizontally oriented and designed to fill half the screen width on a laptop display, with any appropriate height.`,
+          system: `IMPORTANT: You must use the results from your tool calls to populate the fields:
+          - Use SVG diagrams from svgTool results for the "svg" field
+          - Use flashcard data from flashcardsTools results for the "flashcardData" field
+          - Use test questions from testTools results for the "testQuestions" field
+          - Use code examples from getCodeTools results for the "code" field
+          - Generate SVG diagrams that are relevant to the topic and enhance understanding
+          - You don't need to show SVG diagrams for test slides, flashcard slides, table slides, or code slides
+          - Focus on creating SVG diagrams that visually represent concepts, processes, or structures
+          - always make sure that you render the test and flash card in the new slide, so that we can provide better learning experience
+          - always remember to keep the user experience high so structure the content in a way that is easy to understand and follow
+          - When creating test questions, always create a dedicated slide with type "test" for the test questions
+          - When creating flashcards, always create a dedicated slide with type "flashcard" for the flashcards
+          - Structure the content so that test questions and flashcards are on separate slides from the main content
+
+          FINAL REQUIREMENT: You MUST NOT end with just tool calls. After using tools, you MUST generate a final comprehensive text response that:
+          1. Summarizes what you learned from the tools
+          2. Explains the learning module structure
+          3. Presents a complete JSON object with all gathered information
+
+          If you finish without generating final text, you have FAILED your mission.`,
           prompt: `${Query}`,
         });
         return result.object;
