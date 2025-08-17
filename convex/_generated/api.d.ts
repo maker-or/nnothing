@@ -16,6 +16,7 @@ import type * as context from "../context.js";
 import type * as course from "../course.js";
 import type * as emails_components_BaseEmail from "../emails/components/BaseEmail.js";
 import type * as emails_verifyOTP from "../emails/verifyOTP.js";
+import type * as example from "../example.js";
 import type * as message from "../message.js";
 import type * as resumable from "../resumable.js";
 import type * as stage from "../stage.js";
@@ -44,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   course: typeof course;
   "emails/components/BaseEmail": typeof emails_components_BaseEmail;
   "emails/verifyOTP": typeof emails_verifyOTP;
+  example: typeof example;
   message: typeof message;
   resumable: typeof resumable;
   stage: typeof stage;

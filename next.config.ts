@@ -8,6 +8,29 @@ type InstrumentEnabled = NextConfig & {
 
 const nextConfig: NextConfig = {
 
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'utfs.io',
+        port: '',
+        pathname: '/**', // This allows all paths under utfs.io
+      },
+      {
+        protocol: 'https',
+        hostname: '**.ufs.sh',
+        port: '',
+        pathname: '/**', // Allow all ufs.sh subdomains (e.g., sf2jdmaodp.ufs.sh)
+      },
+      {
+        protocol: 'https',
+        hostname: 'ufs.sh',
+        port: '',
+        pathname: '/**',
+      },
+    ]
+  },
+
 
   /* config options here */
 

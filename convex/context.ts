@@ -84,6 +84,7 @@ export const contextgather = action({
         phase: 'contextgather',
         source: 'sphereai-agent',
         prompt_length: args.messages?.length ?? 0,
+        messages: args.messages,
       },
     });
 
@@ -91,11 +92,15 @@ export const contextgather = action({
       const generation = langfuse.generation({
         name: 'syllabus-generation',
         model: 'openai/gpt-oss-120b',
-        input: args.messages,
+        input: {
+          user_request: args.messages,
+          system_prompt: `You are an expert AI curriculum designer who creates structured learning courses.`,
+        },
         traceId: trace.id,
         metadata: {
           run_id: runId,
           phase: 'contextgather',
+          user_id: userId,
         },
       });
 
@@ -151,15 +156,38 @@ const stages = generatedResponse?.stages;
           input: {
             reason: 'Missing or insufficient stages',
             stages_count: stages?.length ?? 0,
+            user_request: args.messages,
+            generated_response: generatedResponse,
           },
           traceId: trace.id,
+          metadata: {
+            run_id: runId,
+            user_id: userId,
+          },
+        });
+
+        trace.update({
+          output: {
+            error: 'Validation failed',
+            reason: 'Missing or insufficient stages',
+            stages_count: stages?.length ?? 0,
+          },
         });
 
         throw new Error('Generated syllabus is invalid: missing or insufficient stages.');
       }
 
       generation.end({
-        output: generatedResponse,
+        output: {
+          generated_course: generatedResponse,
+          stages_count: stages.length,
+          stages_titles: stages.map(s => s.title),
+        },
+        usage: result.usage ? {
+          promptTokens: result.usage.inputTokens || 0,
+          completionTokens: result.usage.outputTokens || 0,
+          totalTokens: result.usage.totalTokens || 0,
+        } : undefined,
       });
 
       // Persist the course with run_id so the next pipeline step can correlate
@@ -170,23 +198,58 @@ const stages = generatedResponse?.stages;
         // runId,
       });
 
+      // Log course creation event
+      langfuse.event({
+        name: 'course-created',
+        input: {
+          course_id: CourseId,
+          stages_count: stages.length,
+          user_request: args.messages,
+        },
+        traceId: trace.id,
+        metadata: {
+          run_id: runId,
+          user_id: userId,
+          phase: 'course-creation',
+        },
+      });
+
       // Update trace with success
       trace.update({
         output: {
           course_id: CourseId,
           stages_count: stages.length,
+          run_id: runId,
+          success: true,
+          stages_titles: stages.map(s => s.title),
         },
       });
 
       return { CourseId, runId };
     } catch (error) {
+      // Update trace with error
+      trace.update({
+        output: {
+          error_message: error instanceof Error ? error.message : String(error),
+          error_name: error instanceof Error ? error.name : 'UnknownError',
+          user_request: args.messages,
+        },
+      });
+
       langfuse.event({
         name: 'context-error',
         input: {
           error_message: error instanceof Error ? error.message : String(error),
           error_name: error instanceof Error ? error.name : 'UnknownError',
+          user_request: args.messages,
+          stack_trace: error instanceof Error ? error.stack : undefined,
         },
         traceId: trace.id,
+        metadata: {
+          run_id: runId,
+          user_id: userId,
+          phase: 'error-handling',
+        },
       });
 
       // Log the full error for debugging
@@ -201,7 +264,12 @@ const stages = generatedResponse?.stages;
       }
       throw new Error('Course generation failed with unknown error');
     } finally {
-      await langfuse.flushAsync();
+      try {
+        await langfuse.flushAsync();
+        console.log("✅ Context gather - Langfuse data flushed successfully");
+      } catch (flushError) {
+        console.error("❌ Context gather - Failed to flush Langfuse data:", flushError);
+      }
     }
   },
 });
