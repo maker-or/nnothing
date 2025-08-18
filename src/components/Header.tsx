@@ -4,6 +4,8 @@ import Image from 'next/image';
 import Link from 'next/link';
 import React from 'react';
 
+import { SignIn, useUser } from '@clerk/nextjs'
+
 const Header = () => {
   return (
     <main className="flex items-center justify-center">
@@ -17,7 +19,7 @@ const Header = () => {
           />
         </button>
         <div className="flex items-center justify-center rounded-full bg-[#FF5E00] p-3 text-[#000000]">
-          <Link href="/select">signin</Link>
+          <Link href="/select">SignIn</Link>
         </div>
       </nav>
     </main>

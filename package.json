@@ -27,6 +27,7 @@
     "@react-email/components": "^0.5.0",
     "@tanstack/react-form": "^1.19.1",
     "@traceloop/node-server-sdk": "^0.16.1",
+    "@vercel/analytics": "^1.5.0",
     "@vercel/otel": "^1.13.0",
     "ai": "^5.0.11",
     "class-variance-authority": "^0.7.1",

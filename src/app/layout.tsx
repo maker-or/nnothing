@@ -5,6 +5,7 @@ import ConvexClientProvider from '../components/ConvexClientProvider';
 import { PHProvider } from './providers';
 import PostHogPageView from './PostHogPageView';
 import { Suspense } from 'react';
+import { Analytics } from "@vercel/analytics/next"
 import "./globals.css";
 
 
@@ -44,6 +45,7 @@ export default function RootLayout({
         <PHProvider>
           <ClerkProvider>
             <ConvexClientProvider>
+              <Analytics/>
               <Suspense>
                 <PostHogPageView />
               </Suspense>
