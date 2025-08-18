@@ -3,14 +3,13 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Button } from '../../components/ui/button';
-import { useConvexAuth } from "convex/react";
-import { useSignIn } from '@clerk/nextjs';
+import { useSignIn, useUser } from '@clerk/nextjs';
 
 
 
 const Page = () => {
 
-   const { isAuthenticated } = useConvexAuth();
+  const { user, isLoaded: userLoaded } = useUser();
   const router = useRouter();
   const { signIn, isLoaded } = useSignIn();
   const [isLoading, setIsLoading] = useState(false);
@@ -20,10 +19,10 @@ const Page = () => {
 
   // Redirect if user is already signed in (avoid calling router during render)
   useEffect(() => {
-    if (isAuthenticated) {
+    if (userLoaded && user) {
       router.replace('/learning');
     }
-  }, [isAuthenticated, router]);
+  }, [user, userLoaded, router]);
 
   const handleSignInWithGoogle = async () => {
     setIsLoading(true);
@@ -33,9 +32,10 @@ const Page = () => {
       if (!signIn) throw new Error("SignIn object not ready");
       await signIn.authenticateWithRedirect({
         strategy: 'oauth_google',
-        redirectUrl: '/select', // intermediate (Clerk) route
+        redirectUrl: window.location.origin + '/learning', // direct to learning page
         redirectUrlComplete: '/learning',
       });
+
       // Redirect handled by Clerk
     } catch (err) {
       console.error("Google sign-in error:", err);
@@ -79,7 +79,7 @@ const Page = () => {
           <div className="flex w-full flex-col items-center gap-2">
             <Button
               className="w-1/4 bg-[#313131] p-6 font-light text-[1.2em] hover:bg-[#f7eee3] hover:text-[#313131] disabled:opacity-50 transition-all duration-150 active:scale-[0.97]"
-              disabled={isLoading || !isLoaded}
+              disabled={isLoading || !isLoaded || !userLoaded}
               onClick={handleSignInWithGoogle}
             >
               {isLoading ? 'Signing in...' : 'Google'}
