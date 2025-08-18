@@ -8,13 +8,15 @@ export const useOnboardingStatus = () => {
   const [isOnboardingComplete, setIsOnboardingComplete] = useState<boolean | null>(null);
 
   useEffect(() => {
-    if (isLoaded && user) {
-      // Check if onboarding is complete from Clerk's public metadata
-      const onboardingComplete = user.unsafeMetadata?.onboardingComplete as boolean;
-      setIsOnboardingComplete(!!onboardingComplete);
-    } else if (isLoaded && !user) {
-      // User is not authenticated
-      setIsOnboardingComplete(null);
+    if (isLoaded) {
+      if (user) {
+        // Check if onboarding is complete from Clerk's public metadata
+        const onboardingComplete = user.unsafeMetadata?.onboardingComplete as boolean;
+        setIsOnboardingComplete(!!onboardingComplete);
+      } else {
+        // User is not authenticated
+        setIsOnboardingComplete(null);
+      }
     }
   }, [user, isLoaded]);
 
@@ -37,7 +39,7 @@ export const useOnboardingStatus = () => {
 
   return {
     isOnboardingComplete,
-    isLoading: !isLoaded || isOnboardingComplete === null,
+    isLoading: !isLoaded,
     markOnboardingComplete,
     isAuthenticated: !!user,
   };
