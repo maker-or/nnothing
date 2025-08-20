@@ -43,7 +43,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} ${serif.variable} antialiased`}
       >
         <PHProvider>
-          <ClerkProvider>
+          <ClerkProvider dynamic>
             <ConvexClientProvider>
               <Analytics/>
               <Suspense>

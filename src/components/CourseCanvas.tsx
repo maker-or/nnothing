@@ -143,7 +143,7 @@ const CourseCanvas: React.FC<CourseCanvasProps> = ({ stages, courseId }) => {
 
   // Handle back button
   const handleBack = () => {
-    router.back();
+    router.push("/learning");
   };
 
   // Generate stage positions

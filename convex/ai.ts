@@ -5,10 +5,12 @@ import { v } from 'convex/values';
 
 import { api, internal } from './_generated/api';
 import { action } from './_generated/server';
+import { withTracing } from "@posthog/ai"
 import { PostHog } from 'posthog-node';
 import { createGroq } from '@ai-sdk/groq';
 import { streamText } from 'ai';
-import { Langfuse } from "langfuse";
+import { randomUUID } from 'crypto';
+
 
 
 
@@ -21,11 +23,20 @@ export const streamChatCompletion = action({
 
 
 
+
   handler: async (ctx, args): Promise<any> => {
     console.log('📝 Full args received:', JSON.stringify(args, null, 2));
 
     const userId = await ctx.auth.getUserIdentity();
     if (!userId) throw new Error('Not authenticated');
+
+
+    const postkey = process.env.NEXT_PUBLIC_POSTHOG_KEY!;
+    if(!postkey){
+      console.error("no key from posthog")
+    }
+
+
 
     const groqKey = process.env.GROQ_API_KEY || '';
 
@@ -93,11 +104,8 @@ export const streamChatCompletion = action({
       JSON.stringify(allMessages, null, 2)
     );
 
-    const langfuse = new Langfuse({
-        secretKey: process.env.LANGFUSE_SECRET_KEY!,
-        publicKey: process.env.LANGFUSE_PUBLIC_KEY!,
-        baseUrl: process.env.LANGFUSE_BASEURL ?? "https://cloud.langfuse.com"
-      });
+
+
 
     // Clear any existing streaming sessions for this chat
     await ctx.runMutation(api.message.clearStreamingSession, {
@@ -112,7 +120,7 @@ export const streamChatCompletion = action({
         role: 'assistant',
         content: '',
         parentId: args.parentMessageId,
-        model: 'openai/gpt-oss-20b',
+        model: 'openai/gpt-oss-120b',
       }
     );
 
@@ -125,62 +133,17 @@ export const streamChatCompletion = action({
       }
     );
 
-    const phClient = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
-      host: process.env.NEXT_PUBLIC_POSTHOG_HOST ?? 'https://us.i.posthog.com',
+    const phClient = new PostHog(process.env.POSTHOG_API_KEY!, {
+      host: process.env.PUBLIC_POSTHOG_HOST ?? 'https://us.i.posthog.com',
     });
 
-    // Create Langfuse trace for this chat completion
-    const trace = langfuse.trace({
-      name: 'chat-completion',
-      userId: userId.subject,
-      metadata: {
-        chat_id: args.chatId,
-        source: 'sphereai-chat',
-        message_count: allMessages.length,
-        has_system_prompt: !!chat.systemPrompt,
-      },
-    });
-
-    const baseProps = {
-      posthogDistinctId: userId.subject,
-      chat_id: args.chatId,
-      source: 'sphereai-chat',
-    };
-
-    let completionStartTime = 0;
 
     try {
-      // Create Langfuse generation for this LLM call
-      const generation = langfuse.generation({
-        name: 'groq-stream-completion',
-        model: 'openai/gpt-oss-120b',
-        input: allMessages,
-        traceId: trace.id,
-        metadata: {
-          chat_id: args.chatId,
-          model: 'openai/gpt-oss-120b',
-        },
-      });
-
-
       console.log(
         'Sending messages to OpenAI:',
         JSON.stringify(allMessages, null, 2)
       );
 
-      // Track chat completion start (keep PostHog for platform analytics)
-      phClient.capture({
-        distinctId: userId.subject,
-        event: '$ai_chat_completion_start',
-        properties: {
-          ...baseProps,
-          model: 'openai/gpt-oss-20b',
-          message_count: allMessages.length,
-          has_system_prompt: !!chat.systemPrompt,
-        },
-      });
-
-      completionStartTime = Date.now();
 
       // Configure Groq client for AI SDK
       const groqClient = createGroq({
@@ -195,8 +158,17 @@ export const streamChatCompletion = action({
          },
       });
 
+
+      const model = withTracing(groqClient("openai/gpt-oss-120b"), phClient, {
+        posthogDistinctId: userId.subject,
+        posthogTraceId: randomUUID(),
+        posthogProperties: { "conversation_id": args.chatId, },
+        posthogPrivacyMode: false,
+      });
+
+
       const response =  streamText({
-        model: groqClient('openai/gpt-oss-120b'),
+        model: model,
         messages: allMessages,
         providerOptions: {
             groq: {
@@ -207,16 +179,7 @@ export const streamChatCompletion = action({
             },
           },
 
-        experimental_telemetry: {
-          isEnabled: true,
-          functionId: 'chat-completion',
-          metadata: {
-            langfuseTraceId: trace.id,
-            chat_id: args.chatId,
-            userId: userId.subject,
-          },
-        },
-        system: `
+        system: ` you are spherai, you are a helpful student assiant you goal is make sure that the students are well prepared for the exam
           ### CRITICAL RULES:
           - ❌ **NEVER** use brackets like "[formula]" for math
           - ❌ **NEVER** use parentheses like "(formula)" for math
@@ -292,27 +255,9 @@ export const streamChatCompletion = action({
         isComplete: true,
       });
 
-      // End Langfuse generation with success
-      generation.end({
-        output: messageContent,
-        usage: {
-          totalTokens: tokenCount,
-        },
-      });
 
-      // Track successful chat completion (keep PostHog for platform analytics)
-      phClient.capture({
-        distinctId: userId.subject,
-        event: '$ai_chat_completion_end',
-        properties: {
-          ...baseProps,
-          model: 'openai/gpt-oss-20b',
-          duration_ms: Date.now() - completionStartTime,
-          token_count: tokenCount,
-          content_length: fullContent.length,
-          success: true,
-        },
-      });
+
+
 
 
 
@@ -320,19 +265,7 @@ export const streamChatCompletion = action({
     } catch (error) {
       console.error('Groq streaming error:', error);
 
-      // Track chat completion error (keep PostHog for platform analytics)
-      phClient.capture({
-        distinctId: userId.subject,
-        event: '$ai_chat_completion_error',
-        properties: {
-          ...baseProps,
-          model: 'openai/gpt-oss-20b',
-          duration_ms: Date.now() - completionStartTime,
-          error_message: error instanceof Error ? error.message : 'Unknown error',
-          error_name: error instanceof Error ? error.name : 'UnknownError',
-          success: false,
-        },
-      });
+
 
       // Update message with error
       await ctx.runMutation(api.message.updateMessage, {
@@ -349,7 +282,7 @@ export const streamChatCompletion = action({
       throw new Error('Groq chat completion failed with unknown error');
     } finally {
       // Ensure both observability clients are properly flushed
-      await langfuse.flushAsync();
+
       await phClient.shutdown();
     }
   },

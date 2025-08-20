@@ -66,18 +66,10 @@ export const getStage = query({
     stageId: v.id('Stage'),
   },
   handler: async (ctx, args) => {
-    // Ensure the user is authenticated
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error('Not authenticated');
-    const userId = identity.subject;
-
-    // Fetch the course and check user ownership
+    // Fetch the course to verify it exists
     const course = await ctx.db.get(args.courseId);
     if (!course) {
       return { error: 'Course not found', stage: null };
-    }
-    if (course.userId !== userId) {
-      return { error: 'Unauthorized access', stage: null };
     }
 
     // Fetch the stage for this course and stageId
@@ -96,18 +88,10 @@ export const getStage = query({
 export const getstageIds = query({
   args: { courseId: v.id('Course') },
   handler: async (ctx, args) => {
-    // Auth check
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error('Not authenticated');
-    const userId = identity.subject;
-
-    // Get the course and check ownership
+    // Get the course to verify it exists
     const course = await ctx.db.get(args.courseId);
     if (!course) {
       return { error: 'Course not found', stageIds: [] };
-    }
-    if (course.userId !== userId) {
-      return { error: 'Unauthorized access', stageIds: [] };
     }
 
     // Get all stages with this courseId, ordered by creation time

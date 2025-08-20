@@ -60,6 +60,19 @@ const Landing = () => {
               </p>
             </div>
           </div>
+
+          <div className="px-8 pb-20 w-[100svw]  h-[100svh] items-center justify-center">
+            <div className=" w-[100svw] h-[100svh] items-center justify-center">
+              <div className="mb-6 items-center justify-center">
+                <span className="text-4xl text-white/60 font-semibold tracking-tighter">
+                  [Why]
+                </span>
+              </div>
+              <p className="text-5xl md:text-3xl lg:text-5xl font-light leading-none text-white/90 max-w-3xl">
+                When talking with the teachers about the use of AI in the education ,Most common concern is that student are just mugging up the answer and reproducing the respones in the exam , with out learning anything, So we are introducing Learn Mode , with the learn mode you can cook yourself a hot Seven stage course ,on any topic that you want to learn.
+              </p>
+            </div>
+          </div>
         </main>
       </div>
     </div>
