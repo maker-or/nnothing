@@ -40,6 +40,7 @@
     "langfuse": "^3.38.4",
     "langfuse-vercel": "^3.38.4",
     "lucide-react": "^0.539.0",
+    "mermaid": "^11.10.1",
     "next": "15.4.6",
     "openai": "^5.12.2",
     "posthog-js": "^1.260.1",

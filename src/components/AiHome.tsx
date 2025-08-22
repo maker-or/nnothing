@@ -63,7 +63,7 @@ const AiHome = () => {
         try {
           // Step 1: Create course structure
           setLoadingStep('Creating course structure...');
-          const { CourseId } = await learn({
+          const { CourseId, traceId, runId } = await learn({
             messages: value.userPrompt.trim(),
           });
 
@@ -71,9 +71,13 @@ const AiHome = () => {
           setLoadingStep('Preparing your course...');
           navigate.push(`/learning/learn/${CourseId}`);
 
-          // Step 3: Generate content in background (non-blocking)
+          // Step 3: Generate content in background (non-blocking) with trace continuity
           // Don't await - let it run in background
-          runAgent({ courseId: CourseId }).catch((error) => {
+          runAgent({
+            courseId: CourseId,
+            traceId,
+            runId
+          }).catch((error) => {
             console.error('Agent processing failed:', error);
             // Could show a toast notification here
           });

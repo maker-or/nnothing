@@ -9,6 +9,7 @@ import remarkMath from 'remark-math';
 import { cn } from '@/lib/utils';
 import 'katex/dist/katex.min.css';
 import hardenReactMarkdown from 'harden-react-markdown';
+import MermaidDiagram from '../MermaidDiagram';
 
 /**
  * Parses markdown text and removes incomplete tokens to prevent partial rendering
@@ -472,6 +473,17 @@ const components: Options['components'] = {
       }
     } else {
       code = String(children);
+    }
+
+    if (language.toLowerCase() === 'mermaid') {
+      return (
+        <div className="my-6">
+          <MermaidDiagram
+            chart={code.trim()}
+            className="border border-white/20 rounded-lg p-4 bg-white/5 backdrop-blur-sm"
+          />
+        </div>
+      );
     }
 
     return (

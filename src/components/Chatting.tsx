@@ -26,20 +26,39 @@ const parseMessageContent = (content: string | string[]) => {
     content = content.join('');
   }
 
-  try {
-    const parsed = JSON.parse(content);
-    if (parsed.type === 'ai-response') {
-      return {
-        isStructured: true,
-        content: parsed.content,
-        reasoning: parsed.reasoning,
-        model: parsed.model,
-      };
-    }
-  } catch (e) {
-    // Not structured JSON, treat as plain text
+  if (!content || content.trim() === '') {
+    return {
+      isStructured: false,
+      content: '',
+      reasoning: null,
+    };
   }
 
+  console.log('🔍 Parsing message content:', content.substring(0, 100) + '...');
+
+  // Check if content is a string that starts with JSON structure
+  if (typeof content === 'string' && content.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(content);
+      console.log('✅ Successfully parsed JSON:', { type: parsed.type, hasContent: !!parsed.content });
+
+      if (parsed && parsed.type === 'ai-response' && parsed.content) {
+        console.log('✅ Returning structured content');
+        return {
+          isStructured: true,
+          content: parsed.content,
+          reasoning: parsed.reasoning,
+          model: parsed.model,
+        };
+      }
+    } catch (e) {
+      console.warn('❌ Failed to parse JSON content:', e);
+      console.warn('❌ Content that failed to parse:', content.substring(0, 200));
+      // If JSON parsing fails, treat as plain text
+    }
+  }
+
+  console.log('⚠️ Treating as plain text content');
   return {
     isStructured: false,
     content: content,
@@ -300,7 +319,7 @@ const Chatting = () => {
                       {/* Main message content */}
                       <div className="whitespace-pre-wrap text-sm leading-relaxed">
                         <Response>
-                          {parsedContent.content}
+                          {parsedContent.content || message.content}
                         </Response>
 
                         {/* Show loading spinner while streaming */}

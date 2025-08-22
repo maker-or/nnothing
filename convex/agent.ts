@@ -3,17 +3,21 @@ import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { api } from "./_generated/api";
 import { AgentOutputSchema } from "../src/app/SlidesSchema";
-import { generateObject, tool, generateText, streamText } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
+import { generateObject, tool,  streamText } from "ai";
 import { z } from "zod";
-import { google , createGoogleGenerativeAI} from '@ai-sdk/google';
-import { Langfuse } from "langfuse";
+import { createGoogleGenerativeAI} from '@ai-sdk/google';
+import crypto from 'node:crypto';
+import { randomUUID } from 'crypto';
+import { withTracing } from "@posthog/ai"
+import { PostHog } from 'posthog-node';
 
 import Exa from "exa-js";
 
 export const agent = action({
   args: {
     courseId: v.id("Course"),
+    traceId: v.optional(v.string()),
+    runId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
 
@@ -24,22 +28,20 @@ export const agent = action({
       courseId: args.courseId,
     });
 
+    // Extract trace metadata from args or generate new ones
+    const traceId = args.traceId || randomUUID();
+    const runId = args.runId || randomUUID();
+
+    // Validate trace continuity
+    if (args.traceId) {
+      console.log(`🔗 TRACE CONTINUITY - Received trace_id: ${traceId} from context gathering`);
+    } else {
+      console.log(`⚠️ TRACE WARNING - No trace_id provided, generated new one: ${traceId}`);
+    }
+
+    console.log(`🟢 AGENT PIPELINE - Starting with course ID: ${args.courseId}, trace_id: ${traceId}, run_id: ${runId}`);
     console.log("Agent received message sucessfully from the backend", course);
-
-    // Get API key from environment
-    const openRouterKey = process.env.OPENROUTER_API_KEY || "";
-      const geminikey = process.env.GEMINI_API_KEY || '';
-    if (!openRouterKey) {
-      throw new Error(
-        "OpenRouter API key is required. Please add your API key in settings.",
-      );
-    }
-
-    if (!openRouterKey.startsWith("sk-")) {
-      throw new Error(
-        "Invalid OpenRouter API key format. Key should start with 'sk-'",
-      );
-    }
+    const geminikey = process.env.GEMINI_API_KEY || '';
 
     if (!geminikey) {
       throw new Error(
@@ -47,30 +49,41 @@ export const agent = action({
       );
     }
 
-    // Create OpenRouter client
-    const openrouter = createOpenAI({
-      baseURL: "https://openrouter.ai/api/v1",
-      apiKey: openRouterKey,
-    });
 
     const google = createGoogleGenerativeAI({
       baseURL:"https://generativelanguage.googleapis.com/v1beta",
       apiKey:geminikey
     });
 
-    const langfuse = new Langfuse({
-      secretKey: process.env.LANGFUSE_SECRET_KEY!,
-      publicKey: process.env.LANGFUSE_PUBLIC_KEY!,
-      baseUrl: process.env.LANGFUSE_BASEURL ?? "https://cloud.langfuse.com"
+    const phClient = new PostHog(process.env.POSTHOG_API_KEY!, {
+      host: process.env.PUBLIC_POSTHOG_HOST ?? 'https://us.i.posthog.com',
     });
 
+    // Create shared tracing context for the agent pipeline
+    const tracingContext = {
+      posthogDistinctId: userId.subject,
+      posthogTraceId: traceId,
+      posthogProperties: {
+        "pipeline_stage": "agent_processing",
+        "user_id": userId.subject,
+        "run_id": runId,
+        "course_id": args.courseId,
+        "course_creation_flow": true,
+      },
+      posthogPrivacyMode: false,
+    };
 
-    const tracedModel = (modelName: string, ctx: { userId: string; courseId: string }) => {
-      console.log('tracedModel called with:', modelName);
-      // Route google/gemini models via openrouter for main orchestrator
-
-      console.log('Routing to GroqClient:', modelName);
-      return google(modelName);
+    const tracedModel = (modelName: string, additionalProperties: Record<string, any> = {}) => {
+      const enhancedContext = {
+        ...tracingContext,
+        posthogProperties: {
+          ...tracingContext.posthogProperties,
+          ...additionalProperties,
+          "model_name": modelName,
+        }
+      };
+      console.log(`🔄 AGENT - Creating traced model: ${modelName} with trace_id: ${traceId}`);
+      return withTracing(google(modelName), phClient, enhancedContext);
     };
 
 
@@ -145,11 +158,44 @@ export const agent = action({
         console.log("Getting syllabus for:", query);
 
         // Use OpenRouter with structured output
+        console.log(`🔍 TOOL CALL - getSyllabusTools: ${query}`);
+
+        // Track tool call start
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_tool_call_started',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            tool_name: 'getSyllabusTools',
+            tool_input: { query },
+            course_id: args.courseId,
+            pipeline_stage: 'agent_processing'
+          }
+        });
+
         const result = await generateObject({
-          model: google('gemini-2.5-flash'),
+          model: tracedModel('gemini-2.5-flash', { tool_name: 'getSyllabusTools', tool_query: query }),
           schema: GetSyllabusSchema,
           prompt: `Generate a comprehensive syllabus for ${query}. Include prerequisite concepts and current concepts with topics and subtopics.`,
         });
+
+        // Track tool call completion
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_tool_call_completed',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            tool_name: 'getSyllabusTools',
+            tool_input: { query },
+            tool_output_size: JSON.stringify(result.object).length,
+            course_id: args.courseId,
+            pipeline_stage: 'agent_processing'
+          }
+        });
+
+        console.log(`✅ TOOL RESULT - getSyllabusTools completed for: ${query}`);
 
         return JSON.stringify(result.object);
       },
@@ -169,6 +215,22 @@ export const agent = action({
           return JSON.stringify({ error: "EXA API key not configured" });
         }
 
+        console.log(`🔍 TOOL CALL - webSearchTools: ${query}`);
+
+        // Track tool call start
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_tool_call_started',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            tool_name: 'webSearchTools',
+            tool_input: { query },
+            course_id: args.courseId,
+            pipeline_stage: 'agent_processing'
+          }
+        });
+
         try {
           const exa = new Exa(EXA_API_KEY);
           const response = await exa.searchAndContents(query, {
@@ -177,7 +239,7 @@ export const agent = action({
             text: true,
           });
 
-          return JSON.stringify({
+          const result = JSON.stringify({
             query,
             results: response.results.map((r: any) => ({
               title: r.title,
@@ -185,8 +247,43 @@ export const agent = action({
               content: r.text?.substring(0, 500) + "...",
             })),
           });
+
+          // Track tool call completion
+          phClient.capture({
+            distinctId: userId.subject,
+            event: 'agent_tool_call_completed',
+            properties: {
+              trace_id: traceId,
+              run_id: runId,
+              tool_name: 'webSearchTools',
+              tool_input: { query },
+              tool_output_size: result.length,
+              results_count: response.results.length,
+              course_id: args.courseId,
+              pipeline_stage: 'agent_processing'
+            }
+          });
+
+          console.log(`✅ TOOL RESULT - webSearchTools completed: ${response.results.length} results for ${query}`);
+          return result;
         } catch (error) {
-          console.error("Web search error:", error);
+          console.error(`❌ TOOL ERROR - webSearchTools failed for ${query}:`, error);
+
+          // Track tool call error
+          phClient.capture({
+            distinctId: userId.subject,
+            event: 'agent_tool_call_failed',
+            properties: {
+              trace_id: traceId,
+              run_id: runId,
+              tool_name: 'webSearchTools',
+              tool_input: { query },
+              error_message: error instanceof Error ? error.message : "Unknown error",
+              course_id: args.courseId,
+              pipeline_stage: 'agent_processing'
+            }
+          });
+
           return JSON.stringify({
             error: true,
             message: error instanceof Error ? error.message : "Unknown error",
@@ -201,12 +298,44 @@ export const agent = action({
         query: z.string().min(2).describe("Query to search knowledge base"),
       }),
       execute: async ({ query }) => {
-        console.log("Knowledge searching for:", query);
+        console.log(`🔍 TOOL CALL - knowledgeSearchTools: ${query}`);
+
+        // Track tool call start
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_tool_call_started',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            tool_name: 'knowledgeSearchTools',
+            tool_input: { query },
+            course_id: args.courseId,
+            pipeline_stage: 'agent_processing'
+          }
+        });
+
         const result = await generateObject({
-          model: google('gemini-2.5-flash'),
+          model: tracedModel('gemini-2.5-flash', { tool_name: 'knowledgeSearchTools', tool_query: query }),
           schema: GetCodeSchema,
           prompt: ` ${query}`,
         });
+
+        // Track tool call completion
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_tool_call_completed',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            tool_name: 'knowledgeSearchTools',
+            tool_input: { query },
+            tool_output_size: JSON.stringify(result.object).length,
+            course_id: args.courseId,
+            pipeline_stage: 'agent_processing'
+          }
+        });
+
+        console.log(`✅ TOOL RESULT - knowledgeSearchTools completed for: ${query}`);
 
         return result.object;
       },
@@ -219,13 +348,44 @@ export const agent = action({
         language: z.string().min(1).describe("Programming language"),
       }),
       execute: async ({ query, language }) => {
-        console.log("Getting code for:", query, "in", language);
+        console.log(`🔍 TOOL CALL - getCodeTools: ${query} in ${language}`);
+
+        // Track tool call start
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_tool_call_started',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            tool_name: 'getCodeTools',
+            tool_input: { query, language },
+            course_id: args.courseId,
+            pipeline_stage: 'agent_processing'
+          }
+        });
 
         const result = await generateObject({
-          model: google('gemini-2.5-flash'),
+          model: tracedModel('gemini-2.5-flash', { tool_name: 'getCodeTools', tool_query: query, tool_language: language }),
           schema: GetCodeSchema,
           prompt: `Generate code for ${query} in ${language}. Include the code and a clear explanation.`,
         });
+
+        // Track tool call completion
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_tool_call_completed',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            tool_name: 'getCodeTools',
+            tool_input: { query, language },
+            tool_output_size: JSON.stringify(result.object).length,
+            course_id: args.courseId,
+            pipeline_stage: 'agent_processing'
+          }
+        });
+
+        console.log(`✅ TOOL RESULT - getCodeTools completed for: ${query} in ${language}`);
 
         return JSON.stringify(result.object);
       },
@@ -238,10 +398,24 @@ export const agent = action({
         no: z.number().min(1).max(10).describe("Number of questions"),
       }),
       execute: async ({ topic, no }) => {
-        console.log("Generating test for:", topic, "with", no, "questions");
+        console.log(`🔍 TOOL CALL - testTools: ${topic} with ${no} questions`);
+
+        // Track tool call start
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_tool_call_started',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            tool_name: 'testTools',
+            tool_input: { topic, no },
+            course_id: args.courseId,
+            pipeline_stage: 'agent_processing'
+          }
+        });
 
         const result = await generateObject({
-          model: google('gemini-2.5-flash'),
+          model: tracedModel('gemini-2.5-flash', { tool_name: 'testTools', tool_topic: topic, tool_question_count: no }),
           schema: TestQuestionSchema,
           system: `You are a world-class test generator. Your job is to create comprehensive tests based
           on the provided topic. Remember that students will use these tests for exam preparation, so ensure
@@ -249,6 +423,24 @@ export const agent = action({
           prompt: `Create ${no} multiple choice questions on the topic ${topic}. Each question
           should have exactly 4 options with one correct answer.`,
         });
+
+        // Track tool call completion
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_tool_call_completed',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            tool_name: 'testTools',
+            tool_input: { topic, no },
+            tool_output_questions: result.object.questions.length,
+            tool_output_size: JSON.stringify(result.object).length,
+            course_id: args.courseId,
+            pipeline_stage: 'agent_processing'
+          }
+        });
+
+        console.log(`✅ TOOL RESULT - testTools completed: ${result.object.questions.length} questions for ${topic}`);
 
         return result.object;
       },
@@ -261,8 +453,24 @@ export const agent = action({
         Query: z.string(),
       }),
       execute: async ({ Query }) => {
+        console.log(`🔍 TOOL CALL - svgTool: ${Query}`);
+
+        // Track tool call start
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_tool_call_started',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            tool_name: 'svgTool',
+            tool_input: { Query },
+            course_id: args.courseId,
+            pipeline_stage: 'agent_processing'
+          }
+        });
+
         const result = await generateObject({
-          model: google('gemini-2.5-pro'),
+          model: tracedModel('gemini-2.5-pro', { tool_name: 'svgTool', tool_query: Query }),
           schema: SvgGenerationSchema,
           system: `IMPORTANT: You must use the results from your tool calls to populate the fields:
           - Use SVG diagrams from svgTool results for the "svg" field
@@ -286,6 +494,23 @@ export const agent = action({
           If you finish without generating final text, you have FAILED your mission.`,
           prompt: `${Query}`,
         });
+
+        // Track tool call completion
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_tool_call_completed',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            tool_name: 'svgTool',
+            tool_input: { Query },
+            tool_output_size: JSON.stringify(result.object).length,
+            course_id: args.courseId,
+            pipeline_stage: 'agent_processing'
+          }
+        });
+
+        console.log(`✅ TOOL RESULT - svgTool completed for: ${Query}`);
         return result.object;
       },
     });
@@ -297,13 +522,45 @@ export const agent = action({
         no: z.number().min(1).max(3).describe("Number of flashcards"),
       }),
       execute: async ({ query, no }) => {
-        console.log("Creating flashcards for:", query, "count:", no);
+        console.log(`🔍 TOOL CALL - flashcardsTools: ${query} count: ${no}`);
+
+        // Track tool call start
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_tool_call_started',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            tool_name: 'flashcardsTools',
+            tool_input: { query, no },
+            course_id: args.courseId,
+            pipeline_stage: 'agent_processing'
+          }
+        });
 
         const result = await generateObject({
-          model: google('gemini-2.5-flash'),
+          model: tracedModel('gemini-2.5-flash', { tool_name: 'flashcardsTools', tool_query: query, tool_flashcard_count: no }),
           schema: FlashcardSchema,
           prompt: `Generate ${no} flashcards on the topic ${query}. Each flashcard should have a clear question/concept on the front and a concise answer/explanation on the back.`,
         });
+
+        // Track tool call completion
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_tool_call_completed',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            tool_name: 'flashcardsTools',
+            tool_input: { query, no },
+            tool_output_flashcards: result.object.flashcards.length,
+            tool_output_size: JSON.stringify(result.object).length,
+            course_id: args.courseId,
+            pipeline_stage: 'agent_processing'
+          }
+        });
+
+        console.log(`✅ TOOL RESULT - flashcardsTools completed: ${result.object.flashcards.length} flashcards for ${query}`);
 
         return JSON.stringify(result.object);
       },
@@ -317,9 +574,42 @@ export const agent = action({
 
     const stageIds = [];
 
-    for (const stage of stages) {
+    // Track agent processing start
+    phClient.capture({
+      distinctId: userId.subject,
+      event: 'agent_stage_processing_started',
+      properties: {
+        trace_id: traceId,
+        run_id: runId,
+        course_id: args.courseId,
+        total_stages: stages.length,
+        stage_titles: stages.map(s => s.title),
+        pipeline_stage: 'agent_processing'
+      }
+    });
+
+    for (let stageIndex = 0; stageIndex < stages.length; stageIndex++) {
+      const stage = stages[stageIndex];
+
+      console.log(`🔄 AGENT - Processing stage ${stageIndex + 1}/${stages.length}: ${stage.title} (trace_id: ${traceId})`);
+
+      // Track individual stage processing start
+      phClient.capture({
+        distinctId: userId.subject,
+        event: 'agent_individual_stage_started',
+        properties: {
+          trace_id: traceId,
+          run_id: runId,
+          course_id: args.courseId,
+          stage_index: stageIndex,
+          stage_title: stage.title,
+          stage_purpose: stage.purpose,
+          stage_topics: stage.include,
+          pipeline_stage: 'agent_processing'
+        }
+      });
       const stagePrompt = `You are SphereAI, an advanced educational agent. Your mission is to produce a comprehensive, multi-slide learning module for the following stage of a course:
-        Title: ${stage.title}
+      Title: ${stage.title}
       Purpose: ${stage.purpose}
       Topics: ${stage.include.join(", ")}
       Outcome: ${stage.outcome}
@@ -327,7 +617,12 @@ export const agent = action({
       try {
         // Use streamText with tools for better debugging and control
         const streamResult = streamText({
-          model: google('gemini-2.5-flash'),
+          model: tracedModel('gemini-2.5-flash', {
+            stage_index: stageIndex,
+            stage_title: stage.title,
+            stage_purpose: stage.purpose,
+            stream_processing: true
+          }),
 // Allow multiple steps for tool usage and final generation
         system: `You are SphereAI, an advanced educational agent. Your mission is to produce a comprehensive, multi-slide learning module for any topic a student asks about.
 
@@ -415,7 +710,7 @@ export const agent = action({
             svgTool,
           },
           onChunk({ chunk }) {
-            console.log(`Chunk type: ${chunk.type}`);
+            console.log(`🔄 STREAM CHUNK - Stage ${stageIndex + 1}: ${chunk.type} (trace_id: ${traceId})`);
 
             // Generic chunk inspection to avoid TypeScript errors
             const chunkAny = chunk as any;
@@ -423,14 +718,30 @@ export const agent = action({
             switch (chunk.type) {
               case 'text-delta':
                 if (chunkAny.textDelta) {
-                  console.log(`Text delta: "${chunkAny.textDelta}"`);
+                  console.log(`  Text delta: "${chunkAny.textDelta}"`);
                 }
                 break;
 
               case 'tool-call':
-                console.log(`Tool call detected`);
+                console.log(`🔧 TOOL CALL DETECTED - Stage ${stageIndex + 1}`);
                 if (chunkAny.toolName) {
                   console.log(`  Tool name: ${chunkAny.toolName}`);
+
+                  // Track streaming tool call
+                  phClient.capture({
+                    distinctId: userId.subject,
+                    event: 'agent_stream_tool_call',
+                    properties: {
+                      trace_id: traceId,
+                      run_id: runId,
+                      course_id: args.courseId,
+                      stage_index: stageIndex,
+                      stage_title: stage.title,
+                      tool_name: chunkAny.toolName,
+                      tool_input: chunkAny.input || chunkAny.args,
+                      pipeline_stage: 'agent_processing'
+                    }
+                  });
                 }
                 if (chunkAny.input) {
                   console.log(`  Input:`, chunkAny.input);
@@ -441,13 +752,31 @@ export const agent = action({
                 break;
 
               case 'tool-result':
-                console.log(`Tool result detected`);
+                console.log(`✅ TOOL RESULT DETECTED - Stage ${stageIndex + 1}`);
                 if (chunkAny.toolName) {
                   console.log(`  Tool name: ${chunkAny.toolName}`);
                 }
                 const result = chunkAny.result || chunkAny.toolResult || chunkAny.data;
                 if (result) {
                   console.log(`  Result type: ${typeof result}`);
+
+                  // Track streaming tool result
+                  phClient.capture({
+                    distinctId: userId.subject,
+                    event: 'agent_stream_tool_result',
+                    properties: {
+                      trace_id: traceId,
+                      run_id: runId,
+                      course_id: args.courseId,
+                      stage_index: stageIndex,
+                      stage_title: stage.title,
+                      tool_name: chunkAny.toolName,
+                      result_type: typeof result,
+                      result_size: typeof result === 'string' ? result.length : JSON.stringify(result).length,
+                      pipeline_stage: 'agent_processing'
+                    }
+                  });
+
                   if (typeof result === 'string') {
                     console.log(`  Result preview: ${result.substring(0, 200)}...`);
                   } else {
@@ -460,19 +789,39 @@ export const agent = action({
 
               default:
                 // Log any other chunk types with their available properties
-                console.log(`Other chunk type: ${chunk.type}`);
+                console.log(`🔍 OTHER CHUNK - Stage ${stageIndex + 1}: ${chunk.type}`);
                 console.log(`Available properties:`, Object.keys(chunkAny));
                 break;
             }
           },
           onFinish({ text, toolCalls, toolResults, steps, finishReason, usage }) {
-            console.log('=== STREAM FINISHED ===');
+            console.log(`🏁 STREAM FINISHED - Stage ${stageIndex + 1}/${stages.length}: ${stage.title} (trace_id: ${traceId})`);
             console.log(`Final text length: ${text?.length || 0}`);
             console.log(`Tool calls: ${toolCalls?.length || 0}`);
             console.log(`Tool results: ${toolResults?.length || 0}`);
             console.log(`Steps: ${steps?.length || 0}`);
             console.log(`Finish reason: ${finishReason}`);
             console.log(`Usage:`, usage);
+
+            // Track stream completion
+            phClient.capture({
+              distinctId: userId.subject,
+              event: 'agent_stream_finished',
+              properties: {
+                trace_id: traceId,
+                run_id: runId,
+                course_id: args.courseId,
+                stage_index: stageIndex,
+                stage_title: stage.title,
+                final_text_length: text?.length || 0,
+                tool_calls_count: toolCalls?.length || 0,
+                tool_results_count: toolResults?.length || 0,
+                steps_count: steps?.length || 0,
+                finish_reason: finishReason,
+                usage: usage,
+                pipeline_stage: 'agent_processing'
+              }
+            });
 
             // Log detailed tool results
             if (toolResults && toolResults.length > 0) {
@@ -511,7 +860,22 @@ export const agent = action({
             }
           },
           onError({ error }) {
-            console.error('Stream error:', error);
+            console.error(`❌ STREAM ERROR - Stage ${stageIndex + 1}: ${stage.title} (trace_id: ${traceId}):`, error);
+
+            // Track stream error
+            phClient.capture({
+              distinctId: userId.subject,
+              event: 'agent_stream_error',
+              properties: {
+                trace_id: traceId,
+                run_id: runId,
+                course_id: args.courseId,
+                stage_index: stageIndex,
+                stage_title: stage.title,
+                error_message: error instanceof Error ? error.message : 'Unknown error',
+                pipeline_stage: 'agent_processing'
+              }
+            });
           }
         });
 
@@ -545,7 +909,11 @@ export const agent = action({
             // Force synthesis with a direct continuation call
             console.log("🚀 STARTING SYNTHESIS PHASE...");
             const synthesisResult = streamText({
-              model: google('gemini-2.5-flash'),
+              model: tracedModel('gemini-2.5-flash', {
+                stage_index: stageIndex,
+                stage_title: stage.title,
+                synthesis_phase: true
+              }),
 
 
               system: `You are completing a learning module generation task. You have already gathered information using tools, and now you MUST synthesize this information into a final response.
@@ -679,8 +1047,29 @@ Structure this as engaging educational content suitable for learners at various 
         console.log(`Text length: ${textToProcess?.length || 0}`);
         console.log(`Text preview: ${textToProcess?.substring(0, 300)}...`);
 
+        console.log(`🔄 AGENT - Generating structured output for stage ${stageIndex + 1}: ${stage.title} (trace_id: ${traceId})`);
+
+        // Track structured generation start
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_structured_generation_started',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            course_id: args.courseId,
+            stage_index: stageIndex,
+            stage_title: stage.title,
+            content_length: textToProcess?.length || 0,
+            pipeline_stage: 'agent_processing'
+          }
+        });
+
         const result = await generateObject({
-          model: google('gemini-2.5-flash'),
+          model: tracedModel('gemini-2.5-flash', {
+            stage_index: stageIndex,
+            stage_title: stage.title,
+            structured_generation: true
+          }),
           schema: AgentOutputSchema,
           maxRetries: 3,
           prompt: `Create a comprehensive learning module by formatting the following information into the valid schema.
@@ -709,6 +1098,22 @@ CRITICAL REQUIREMENTS:
 8. NEVER create empty or placeholder slides
 
 Your output must strictly follow the provided schema structure.`
+        });
+
+        // Track structured generation completion
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_structured_generation_completed',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            course_id: args.courseId,
+            stage_index: stageIndex,
+            stage_title: stage.title,
+            generated_slides_count: result.object.slides?.length || 0,
+            output_size: JSON.stringify(result.object).length,
+            pipeline_stage: 'agent_processing'
+          }
         });
 
         console.log("=== GENERATE OBJECT RESULT ===");
@@ -747,9 +1152,67 @@ Your output must strictly follow the provided schema structure.`
           slides: parsed.data.slides,
         });
         stageIds.push(stageId);
+
+        // Track individual stage completion
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_individual_stage_completed',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            course_id: args.courseId,
+            stage_index: stageIndex,
+            stage_title: stage.title,
+            stage_id: stageId,
+            slides_count: parsed.data.slides.length,
+            pipeline_stage: 'agent_processing'
+          }
+        });
+
+        console.log(`✅ AGENT - Completed stage ${stageIndex + 1}/${stages.length}: ${stage.title} (stage_id: ${stageId}, trace_id: ${traceId})`);
       } catch (error) {
-        console.error("Agent processing error:", error);
+        console.error(`❌ AGENT - Stage ${stageIndex + 1} processing error (trace_id: ${traceId}):`, error);
+
+        // Track individual stage error
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_individual_stage_failed',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            course_id: args.courseId,
+            stage_index: stageIndex,
+            stage_title: stage.title,
+            error_message: error instanceof Error ? error.message : 'Unknown error',
+            pipeline_stage: 'agent_processing'
+          }
+        });
       }
+    }
+
+    // Track agent processing completion
+    phClient.capture({
+      distinctId: userId.subject,
+      event: 'agent_processing_completed',
+      properties: {
+        trace_id: traceId,
+        run_id: runId,
+        course_id: args.courseId,
+        total_stages: stages.length,
+        completed_stages: stageIds.length,
+        stage_ids: stageIds,
+        pipeline_stage: 'agent_processing'
+      }
+    });
+
+    console.log(`🟢 AGENT PIPELINE - Completed successfully. Created ${stageIds.length}/${stages.length} stages (trace_id: ${traceId})`);
+
+    // Flush PostHog data
+    try {
+      await phClient.shutdown();
+      console.log(`✅ AGENT - PostHog data flushed successfully for trace_id: ${traceId}`);
+    } catch (flushError) {
+      console.error(`❌ AGENT - Failed to flush PostHog data for trace_id: ${traceId}:`, flushError);
     }
 
     return stageIds;

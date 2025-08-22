@@ -9,6 +9,9 @@ import { action } from './_generated/server';
 import { Langfuse } from "langfuse";
 import crypto from 'node:crypto';
 import { createGroq } from '@ai-sdk/groq';
+import { randomUUID } from 'crypto';
+import { withTracing } from "@posthog/ai"
+import { PostHog } from 'posthog-node';
 
 export const StageSchema = z.object({
   title: z.string().min(2, 'Stage title is required'),
@@ -41,11 +44,17 @@ export const contextgather = action({
 
     const groqKey = process.env.GROQ_API_KEY || '';
 
+
     if (!groqKey) {
       throw new Error(
         'Groq API key is required. Please add your API key in settings.'
       );
     }
+
+    const phClient = new PostHog(process.env.POSTHOG_API_KEY!, {
+      host: process.env.PUBLIC_POSTHOG_HOST ?? 'https://us.i.posthog.com',
+    });
+
 
     // Initialize Langfuse for this request
     const langfuse = new Langfuse({
@@ -54,8 +63,25 @@ export const contextgather = action({
       baseUrl: process.env.LANGFUSE_BASEURL ?? "https://cloud.langfuse.com"
     });
 
-    // Generate a run_id to correlate with the later agent pipeline
+    // Generate a trace_id to correlate with the entire course creation pipeline
+    const traceId = crypto.randomUUID();
     const runId = crypto.randomUUID();
+
+    // Create PostHog tracer context for the entire pipeline
+    const tracingContext = {
+      posthogDistinctId: userId,
+      posthogTraceId: traceId,
+      posthogProperties: {
+        "pipeline_stage": "context_gathering",
+        "user_id": userId,
+        "run_id": runId,
+        "course_creation_flow": true,
+        "prompt": args.messages
+      },
+      posthogPrivacyMode: false,
+    };
+
+    console.log(`🟢 CONTEXT GATHERING - Starting with trace_id: ${traceId}, run_id: ${runId}`);
 
     // OpenRouter client
     const openrouter = createOpenAI({
@@ -72,40 +98,32 @@ export const contextgather = action({
          "Helicone-Posthog-Host": `${process.env.NEXT_PUBLIC_POSTHOG_HOST}`,
          "Helicone-User-Id":userId,
         "Helicone-Property-mode":"context mode",
+        "Helicone-Property-trace-id": traceId,
+        "Helicone-Property-run-id": runId,
        },
     });
 
-    // Create Langfuse trace for this context gathering session
-    const trace = langfuse.trace({
-      name: 'context-gather',
-      userId: userId,
-      metadata: {
-        run_id: runId,
-        phase: 'contextgather',
-        source: 'sphereai-agent',
-        prompt_length: args.messages?.length ?? 0,
-        messages: args.messages,
-      },
-    });
+    // Create traced model for context gathering
+    const model = withTracing(groqClient("openai/gpt-oss-120b"), phClient, tracingContext);
+
 
     try {
-      const generation = langfuse.generation({
-        name: 'syllabus-generation',
-        model: 'openai/gpt-oss-120b',
-        input: {
-          user_request: args.messages,
-          system_prompt: `You are an expert AI curriculum designer who creates structured learning courses.`,
-        },
-        traceId: trace.id,
-        metadata: {
+      // Track context gathering start
+      phClient.capture({
+        distinctId: userId,
+        event: 'course_context_gathering_started',
+        properties: {
+          trace_id: traceId,
           run_id: runId,
-          phase: 'contextgather',
-          user_id: userId,
-        },
+          prompt: args.messages,
+          pipeline_stage: 'context_gathering'
+        }
       });
 
+      console.log(`🔄 CONTEXT GATHERING - Generating course structure with model`);
+
       const result = await generateObject({
-        model:groqClient('openai/gpt-oss-120b'),
+        model: model,
         system: `You are an expert AI curriculum designer who creates structured learning courses.
 
 Your task is to create a comprehensive learning course with multiple stages based on the user's request.
@@ -130,130 +148,71 @@ IMPORTANT: You must respond with valid JSON that exactly matches the required sc
 Please design a course with multiple stages that will help someone learn this topic effectively. Each stage should build upon the previous one and include practical learning activities.`,
         schema: CourseSchema,
         maxRetries: 3,
-        experimental_telemetry: {
-          isEnabled: true,
-          functionId: 'context-gather',
-          metadata: {
-            langfuseTraceId: trace.id,
-            run_id: runId,
-            phase: 'contextgather',
-            userId: userId,
-          },
-        },
+
       });
 
       const generatedResponse = result.object;
-const stages = generatedResponse?.stages;
+      const stages = generatedResponse?.stages;
 
       if (!stages || !Array.isArray(stages) || stages.length < 2) {
-        generation.end({
-          output: generatedResponse,
-          level: 'ERROR',
-        });
-
-        langfuse.event({
-          name: 'validation-error',
-          input: {
-            reason: 'Missing or insufficient stages',
-            stages_count: stages?.length ?? 0,
-            user_request: args.messages,
-            generated_response: generatedResponse,
-          },
-          traceId: trace.id,
-          metadata: {
-            run_id: runId,
-            user_id: userId,
-          },
-        });
-
-        trace.update({
-          output: {
-            error: 'Validation failed',
-            reason: 'Missing or insufficient stages',
-            stages_count: stages?.length ?? 0,
-          },
-        });
-
         throw new Error('Generated syllabus is invalid: missing or insufficient stages.');
       }
 
-      generation.end({
-        output: {
-          generated_course: generatedResponse,
+      console.log(`✅ CONTEXT GATHERING - Generated ${stages.length} stages successfully`);
+
+      // Track successful course structure generation
+      phClient.capture({
+        distinctId: userId,
+        event: 'course_structure_generated',
+        properties: {
+          trace_id: traceId,
+          run_id: runId,
           stages_count: stages.length,
           stages_titles: stages.map(s => s.title),
-        },
-        usage: result.usage ? {
-          promptTokens: result.usage.inputTokens || 0,
-          completionTokens: result.usage.outputTokens || 0,
-          totalTokens: result.usage.totalTokens || 0,
-        } : undefined,
+          pipeline_stage: 'context_gathering'
+        }
       });
 
-      // Persist the course with run_id so the next pipeline step can correlate
+      // Persist the course with trace metadata
       const CourseId = await ctx.runMutation(api.course.createCourse, {
         prompt: args.messages,
         stages,
-        // Add run_id to the Course if your schema allows it
+        // Add trace metadata if your schema supports it
+        // traceId,
         // runId,
       });
 
-      // Log course creation event
-      langfuse.event({
-        name: 'course-created',
-        input: {
-          course_id: CourseId,
-          stages_count: stages.length,
-          user_request: args.messages,
-        },
-        traceId: trace.id,
-        metadata: {
+      // Track course creation completion
+      phClient.capture({
+        distinctId: userId,
+        event: 'course_context_gathering_completed',
+        properties: {
+          trace_id: traceId,
           run_id: runId,
-          user_id: userId,
-          phase: 'course-creation',
-        },
+          course_id: CourseId,
+          pipeline_stage: 'context_gathering',
+          next_stage: 'agent_processing'
+        }
       });
 
-      // Update trace with success
-      trace.update({
-        output: {
-          course_id: CourseId,
-          stages_count: stages.length,
-          run_id: runId,
-          success: true,
-          stages_titles: stages.map(s => s.title),
-        },
-      });
+      console.log(`🟢 CONTEXT GATHERING - Completed successfully. Course ID: ${CourseId}, Trace ID: ${traceId}`);
 
-      return { CourseId, runId };
+      return { CourseId, runId, traceId };
     } catch (error) {
-      // Update trace with error
-      trace.update({
-        output: {
-          error_message: error instanceof Error ? error.message : String(error),
-          error_name: error instanceof Error ? error.name : 'UnknownError',
-          user_request: args.messages,
-        },
-      });
-
-      langfuse.event({
-        name: 'context-error',
-        input: {
-          error_message: error instanceof Error ? error.message : String(error),
-          error_name: error instanceof Error ? error.name : 'UnknownError',
-          user_request: args.messages,
-          stack_trace: error instanceof Error ? error.stack : undefined,
-        },
-        traceId: trace.id,
-        metadata: {
+      // Track context gathering error
+      phClient.capture({
+        distinctId: userId,
+        event: 'course_context_gathering_failed',
+        properties: {
+          trace_id: traceId,
           run_id: runId,
-          user_id: userId,
-          phase: 'error-handling',
-        },
+          error_message: error instanceof Error ? error.message : 'Unknown error',
+          pipeline_stage: 'context_gathering'
+        }
       });
 
       // Log the full error for debugging
-      console.error('Context gather error:', error);
+      console.error(`❌ CONTEXT GATHERING - Error with trace_id: ${traceId}:`, error);
 
       if (error instanceof Error) {
         // Check if it's a JSON parsing error and provide more context
@@ -266,9 +225,10 @@ const stages = generatedResponse?.stages;
     } finally {
       try {
         await langfuse.flushAsync();
-        console.log("✅ Context gather - Langfuse data flushed successfully");
+        await phClient.shutdown();
+        console.log(`✅ CONTEXT GATHERING - Langfuse and PostHog data flushed successfully for trace_id: ${traceId}`);
       } catch (flushError) {
-        console.error("❌ Context gather - Failed to flush Langfuse data:", flushError);
+        console.error(`❌ CONTEXT GATHERING - Failed to flush data for trace_id: ${traceId}:`, flushError);
       }
     }
   },
