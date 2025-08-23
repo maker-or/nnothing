@@ -2,7 +2,7 @@
 
 
 import { v } from 'convex/values';
-
+import { getEmbedding } from "../utils/embeddings";
 import { api, internal } from './_generated/api';
 import { action } from './_generated/server';
 import { withTracing } from "@posthog/ai"
@@ -10,6 +10,7 @@ import { PostHog } from 'posthog-node';
 import { createGroq } from '@ai-sdk/groq';
 import { streamText } from 'ai';
 import { randomUUID } from 'crypto';
+import { Pinecone } from "@pinecone-database/pinecone";
 
 
 
@@ -40,9 +41,18 @@ export const streamChatCompletion = action({
 
     const groqKey = process.env.GROQ_API_KEY || '';
 
+    const pineconekey = process.env.PINECONE_API_KEY;
+
     if (!groqKey) {
       throw new Error(
         'Groq API key is required. Please add your API key in settings.'
+      );
+    }
+
+
+    if (!pineconekey) {
+      throw new Error(
+        "pineconekey API key is required. Please add your API key in settings.",
       );
     }
 
@@ -52,6 +62,10 @@ export const streamChatCompletion = action({
         "Invalid Groq API key format. Key should start with 'gsk_'"
       );
     }
+
+    const pinecone = new Pinecone({
+      apiKey: pineconekey,
+    });
 
     // Get chat details
     const chat = await ctx.runQuery(api.chats.getChat, { chatId: args.chatId });
@@ -157,6 +171,36 @@ export const streamChatCompletion = action({
            "Helicone-Property-mode":"Chat mode",
          },
       });
+
+
+      const embeddings = await getEmbedding(
+        allMessages.map((msg) => msg.content).join(" "),
+      );
+
+
+      const index = pinecone.index("design");
+      const Semantic_search = await index.namespace("__default__").query({
+        vector: embeddings,
+        topK: 5,
+        includeMetadata: true,
+        includeValues: false,
+      });
+
+      const textContent = Semantic_search.matches
+        .map((match) => match.metadata?.text)
+        .filter(Boolean);
+      console.log("the textcontent is : ", textContent);
+      const resultsString = textContent.join("\n\n");
+      console.log("############################################");
+      console.log("the resultsString is : ", resultsString);
+      console.log("############################################");
+      // Add the retrieved context as a system message
+      if (resultsString) {
+        allMessages.unshift({
+          role: "assistant",
+          content: `Relevant context from knowledge base:\n\n${resultsString} when using this make sure that you also specify the sources at the end of the respose`,
+        });
+      }
 
 
       const model = withTracing(groqClient("openai/gpt-oss-120b"), phClient, {
