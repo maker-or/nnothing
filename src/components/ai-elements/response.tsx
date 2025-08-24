@@ -4,7 +4,6 @@ import type { ComponentProps, HTMLAttributes } from 'react';
 import { memo } from 'react';
 import ReactMarkdown, { type Options } from 'react-markdown';
 import rehypeKatex from 'rehype-katex';
-import rehypeRaw from 'rehype-raw'; // Allow raw HTML (e.g. <br>, <ul>, <ol>, <li>) inside markdown nodes, incl. inside tables
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import { cn } from '@/lib/utils';
@@ -145,6 +144,12 @@ function parseIncompleteMarkdown(text: string): string {
       result = `${result}~~`;
     }
   }
+
+  // Collapse multiple raw <br> tags into a single one
+  result = result.replace(/(?:<br\s*\/?>\s*){2,}/gi, '<br />');
+
+  // Remove leading <br> sequences immediately before a table
+  result = result.replace(/(?:<br\s*\/?>\s*)+(?=\s*<table\b)/gi, '');
 
   return result;
 }
@@ -351,10 +356,10 @@ const components: Options['components'] = {
 
   // Table components
   table: ({ node, children, className, ...props }) => (
-    <div className="my-6 overflow-x-auto p-1 bg-[#252525] rounded-2xl">
+    <div className="overflow-x-auto p-1 bg-[#252525] rounded-2xl">
       <table
         className={cn(
-          'w-full border-collapse rounded-lg  border-red-600 bg-[#161718] text-sm',
+          'm-0 mb-4 w-full border-collapse rounded-lg border-red-600 bg-[#161718] text-sm',
           className
         )}
         {...props}
@@ -394,7 +399,7 @@ const components: Options['components'] = {
   th: ({ node, children, className, ...props }) => (
     <th
       className={cn(
-        'px-4 py-3 text-left font-stretch-condensed text-[1.2em] align-top [&_br]:block', // [&_br]:block ensures <br> inside header cells render as line breaks
+        '  px-4 py-3  text-left font-stretch-condensed text-[1.2em]   ',
         className
       )}
       {...props}
@@ -406,7 +411,7 @@ const components: Options['components'] = {
   td: ({ node, children, className, ...props }) => (
     <td
       className={cn(
-        'px-4 py-3 text-gray-200 align-top [&_br]:block [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_li]:my-0.5', // Support raw HTML lists & line breaks in table body cells
+        '  px-4 py-3 text-gray-200',
         className
       )}
       {...props}
@@ -534,7 +539,7 @@ export const Response = memo(
       >
         <HardenedMarkdown
           components={components}
-          rehypePlugins={[rehypeRaw, [rehypeKatex, { // rehypeRaw first so raw HTML (e.g. <br>, <li>, <ol>) becomes part of the HAST before other transforms
+          rehypePlugins={[[rehypeKatex, {
             strict: false,
             throwOnError: false,
             errorColor: '#cc0000',
