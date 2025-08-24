@@ -20,6 +20,7 @@ export const streamChatCompletion = action({
     chatId: v.id('chats'),
     messages: v.string(), // Current message content
     parentMessageId: v.optional(v.id('messages')),
+    useKnowledgeBase: v.optional(v.boolean()), // Whether to search Pinecone knowledge base
   },
 
 
@@ -173,33 +174,35 @@ export const streamChatCompletion = action({
       });
 
 
-      const embeddings = await getEmbedding(
-        allMessages.map((msg) => msg.content).join(" "),
-      );
+      // Only search knowledge base if explicitly requested
+      if (args.useKnowledgeBase) {
+        const embeddings = await getEmbedding(
+          allMessages.map((msg) => msg.content).join(" "),
+        );
 
-
-      const index = pinecone.index("design");
-      const Semantic_search = await index.namespace("__default__").query({
-        vector: embeddings,
-        topK: 10,
-        includeMetadata: true,
-        includeValues: false,
-      });
-
-      const textContent = Semantic_search.matches
-        .map((match) => match.metadata?.text)
-        .filter(Boolean);
-      console.log("the textcontent is : ", textContent);
-      const resultsString = textContent.join("\n\n");
-      console.log("############################################");
-      console.log("the resultsString is : ", resultsString);
-      console.log("############################################");
-      // Add the retrieved context as a system message
-      if (resultsString) {
-        allMessages.unshift({
-          role: "assistant",
-          content: `Relevant context from knowledge base:\n\n${resultsString} when using this make sure that you also specify the sources at the end of the respose`,
+        const index = pinecone.index("design");
+        const Semantic_search = await index.namespace("__default__").query({
+          vector: embeddings,
+          topK: 10,
+          includeMetadata: true,
+          includeValues: false,
         });
+
+        const textContent = Semantic_search.matches
+          .map((match) => match.metadata?.text)
+          .filter(Boolean);
+        console.log("the textcontent is : ", textContent);
+        const resultsString = textContent.join("\n\n");
+        console.log("############################################");
+        console.log("the resultsString is : ", resultsString);
+        console.log("############################################");
+        // Add the retrieved context as a system message
+        if (resultsString) {
+          allMessages.unshift({
+            role: "assistant",
+            content: `Relevant context from knowledge base:\n\n${resultsString} when using this make sure that you also specify the sources at the end of the respose`,
+          });
+        }
       }
 
 

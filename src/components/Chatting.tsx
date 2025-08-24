@@ -79,6 +79,7 @@ const Chatting = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showChatPalette, setShowChatPalette] = useState(false);
+  const [useKnowledgeBase, setUseKnowledgeBase] = useState(false);
   const convexChatId = chatID as Id<"chats">;
 
   // Convex hooks - only query if we have a valid chatId
@@ -126,6 +127,7 @@ const Chatting = () => {
           chatId: convexChatId,
           messages: value.message,
           parentMessageId: userMessageId,
+          useKnowledgeBase: useKnowledgeBase,
         });
       } catch (error) {
         console.error("Error sending message:", error);
@@ -356,74 +358,88 @@ const Chatting = () => {
       {/* Input area - Fixed at bottom */}
       <div className="relative z-20 flex-shrink-0 border-white/10 border-t">
         <div className="mx-auto max-w-4xl px-6 py-4">
-          <form
-            className="w-full"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void form.handleSubmit();
-            }}
-          >
-            <div className="flex-1">
-              <form.Field name="message">
-                {({ state, handleBlur, handleChange }) => (
-                  <div className="relative">
-                    <textarea
-                      ref={textareaRef}
-                      className="w-full resize-none rounded-full border border-white/10 bg-white/5 px-4 py-4 pr-14 text-sm text-white placeholder:text-white/40 backdrop-blur-sm focus:border-white/20 focus:outline-none focus:ring-2 focus:ring-white/20 disabled:opacity-50"
-                      disabled={activeStreamingSession?.isActive}
-                      onBlur={handleBlur}
-                      onChange={(e) => handleChange(e.target.value)}
-                      onInput={(e) => {
-                        const target = e.target as HTMLTextAreaElement;
-                        target.style.height = "auto";
-                        const maxHeight = 140;
-                        const newHeight = Math.min(target.scrollHeight, maxHeight);
-                        target.style.height = `${newHeight}px`;
-                        target.style.overflowY = target.scrollHeight > maxHeight ? "auto" : "hidden";
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey && !activeStreamingSession?.isActive) {
-                          e.preventDefault();
-                          void form.handleSubmit();
-                        }
-                      }}
-                      placeholder={activeStreamingSession?.isActive ? "AI is responding..." : "Continue the conversation..."}
-                      rows={1}
-                      style={{
-                        minHeight: "48px",
-                        maxHeight: "140px",
-                        height: "auto",
-                        overflow: "hidden",
-                      }}
-                      value={state.value}
-                    />
-                    <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
-                      {([canSubmit, isSubmitting]) => (
-                        <button
-                          className="absolute bottom-4 right-2 flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
-                          disabled={!canSubmit || isSubmitting || activeStreamingSession?.isActive}
-                          type="submit"
-                          aria-label="Send message"
-                        >
-                          {isSubmitting || activeStreamingSession?.isActive ? (
-                            <ArrowClockwiseIcon className="animate-spin" size={18} />
-                          ) : (
-                            <ArrowUpIcon size={18} />
-                          )}
-                        </button>
-                      )}
-                    </form.Subscribe>
-                    {state.meta.errors.length > 0 && (
-                      <div className="mt-2 text-xs text-red-400">
-                        {String(state.meta.errors[0])}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </form.Field>
-            </div>
+          <div className="w-full max-w-2xl mx-auto rounded-xl bg-[#E9E9E9] p-1">
+            <form
+              className="relative"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void form.handleSubmit();
+              }}
+            >
+              <div className="space-y-3">
+                <form.Field name="message">
+                  {({ state, handleBlur, handleChange }) => (
+                    <>
+                      <textarea
+                        ref={textareaRef}
+                        className="min-h-[120px] w-full resize-none rounded-xl border-none bg-[#D2D2D2] px-6 py-4 text-black text-lg placeholder:text-gray-500 focus:border-transparent focus:outline-none focus:ring-0"
+                        disabled={activeStreamingSession?.isActive}
+                        onBlur={handleBlur}
+                        onChange={(e) => handleChange(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey && !activeStreamingSession?.isActive) {
+                            e.preventDefault();
+                            void form.handleSubmit();
+                          }
+                        }}
+                        placeholder={activeStreamingSession?.isActive ? "AI is responding..." : "Continue the conversation..."}
+                        value={state.value}
+                      />
 
-          </form>
+                      {/* Controls row - Knowledge base toggle and Submit button */}
+                      <div className="flex justify-between items-center">
+                        {/* Knowledge base toggle */}
+                        <button
+                          type="button"
+                          className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                            useKnowledgeBase
+                              ? 'bg-black text-white shadow-md'
+                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300 border border-gray-300'
+                          }`}
+                          onClick={() => setUseKnowledgeBase(!useKnowledgeBase)}
+                          disabled={activeStreamingSession?.isActive}
+                        >
+                          <span>📚 Knowledge base</span>
+                          <div className={`w-2 h-2 rounded-full transition-colors ${useKnowledgeBase ? 'bg-green-400' : 'bg-gray-500'}`} />
+                        </button>
+
+                        {/* Submit button */}
+                        <form.Subscribe
+                          selector={(state) => [
+                            state.canSubmit,
+                            state.isSubmitting,
+                          ]}
+                        >
+                          {([canSubmit, isSubmitting]) => (
+                            <button
+                              className="flex h-10 w-10 items-center justify-center rounded-lg border-0 bg-black p-0 text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+                              disabled={!canSubmit || isSubmitting || activeStreamingSession?.isActive}
+                              type="submit"
+                            >
+                              {isSubmitting || activeStreamingSession?.isActive ? (
+                                <ArrowClockwiseIcon
+                                  className="animate-spin"
+                                  size={20}
+                                />
+                              ) : (
+                                <ArrowUpIcon size={20} />
+                              )}
+                            </button>
+                          )}
+                        </form.Subscribe>
+                      </div>
+
+                      {state.meta.errors.length > 0 && (
+                        <div className="mt-2 text-xs text-red-400">
+                          {String(state.meta.errors[0])}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </form.Field>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
 
