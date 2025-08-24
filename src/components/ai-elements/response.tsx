@@ -4,6 +4,7 @@ import type { ComponentProps, HTMLAttributes } from 'react';
 import { memo } from 'react';
 import ReactMarkdown, { type Options } from 'react-markdown';
 import rehypeKatex from 'rehype-katex';
+import rehypeRaw from 'rehype-raw'; // Allow raw HTML (e.g. <br>, <ul>, <ol>, <li>) inside markdown nodes, incl. inside tables
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import { cn } from '@/lib/utils';
@@ -393,7 +394,7 @@ const components: Options['components'] = {
   th: ({ node, children, className, ...props }) => (
     <th
       className={cn(
-        '  px-4 py-3  text-left font-stretch-condensed text-[1.2em]   ',
+        'px-4 py-3 text-left font-stretch-condensed text-[1.2em] align-top [&_br]:block', // [&_br]:block ensures <br> inside header cells render as line breaks
         className
       )}
       {...props}
@@ -405,7 +406,7 @@ const components: Options['components'] = {
   td: ({ node, children, className, ...props }) => (
     <td
       className={cn(
-        '  px-4 py-3 text-gray-200',
+        'px-4 py-3 text-gray-200 align-top [&_br]:block [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_li]:my-0.5', // Support raw HTML lists & line breaks in table body cells
         className
       )}
       {...props}
@@ -533,7 +534,7 @@ export const Response = memo(
       >
         <HardenedMarkdown
           components={components}
-          rehypePlugins={[[rehypeKatex, {
+          rehypePlugins={[rehypeRaw, [rehypeKatex, { // rehypeRaw first so raw HTML (e.g. <br>, <li>, <ol>) becomes part of the HAST before other transforms
             strict: false,
             throwOnError: false,
             errorColor: '#cc0000',

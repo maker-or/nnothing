@@ -181,7 +181,7 @@ export const streamChatCompletion = action({
       const index = pinecone.index("design");
       const Semantic_search = await index.namespace("__default__").query({
         vector: embeddings,
-        topK: 5,
+        topK: 10,
         includeMetadata: true,
         includeValues: false,
       });

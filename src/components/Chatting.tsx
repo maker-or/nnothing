@@ -77,6 +77,7 @@ const Chatting = () => {
   const { chat: chatID } = useParams<{ chat: string }>();
   const router = useRouter();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showChatPalette, setShowChatPalette] = useState(false);
   const convexChatId = chatID as Id<"chats">;
 
@@ -113,8 +114,12 @@ const Chatting = () => {
           role: "user",
         });
 
-        // Clear form
+        // Clear form and reset textarea height
         form.reset();
+        if (textareaRef.current) {
+          textareaRef.current.style.height = "48px";
+          textareaRef.current.style.overflowY = "hidden";
+        }
 
         // Stream AI response
         const assistantMessageId = await streamChatCompletion({
@@ -363,6 +368,7 @@ const Chatting = () => {
                 {({ state, handleBlur, handleChange }) => (
                   <div className="relative">
                     <textarea
+                      ref={textareaRef}
                       className="w-full resize-none rounded-full border border-white/10 bg-white/5 px-4 py-4 pr-14 text-sm text-white placeholder:text-white/40 backdrop-blur-sm focus:border-white/20 focus:outline-none focus:ring-2 focus:ring-white/20 disabled:opacity-50"
                       disabled={activeStreamingSession?.isActive}
                       onBlur={handleBlur}
@@ -370,7 +376,10 @@ const Chatting = () => {
                       onInput={(e) => {
                         const target = e.target as HTMLTextAreaElement;
                         target.style.height = "auto";
-                        target.style.height = `${target.scrollHeight}px`;
+                        const maxHeight = 140;
+                        const newHeight = Math.min(target.scrollHeight, maxHeight);
+                        target.style.height = `${newHeight}px`;
+                        target.style.overflowY = target.scrollHeight > maxHeight ? "auto" : "hidden";
                       }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && !e.shiftKey && !activeStreamingSession?.isActive) {
@@ -384,6 +393,7 @@ const Chatting = () => {
                         minHeight: "48px",
                         maxHeight: "140px",
                         height: "auto",
+                        overflow: "hidden",
                       }}
                       value={state.value}
                     />
