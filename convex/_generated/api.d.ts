@@ -11,6 +11,7 @@
 import type * as agent from "../agent.js";
 import type * as ai from "../ai.js";
 import type * as branches from "../branches.js";
+import type * as chatbot from "../chatbot.js";
 import type * as chats from "../chats.js";
 import type * as context from "../context.js";
 import type * as course from "../course.js";
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   agent: typeof agent;
   ai: typeof ai;
   branches: typeof branches;
+  chatbot: typeof chatbot;
   chats: typeof chats;
   context: typeof context;
   course: typeof course;

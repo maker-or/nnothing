@@ -9,11 +9,22 @@ import {
 } from "@phosphor-icons/react";
 // Import Convex types
 import type { Doc } from "../../convex/_generated/dataModel";
-import { CheckCircle2, Circle, CircleDotDashed } from "lucide-react";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { CheckCircle2, Circle, CircleDotDashed, Sparkles } from "lucide-react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import { CodeBlock, CodeBlockCopyButton } from "./ai-elements/code-block";
+import { Response } from "./ai-elements/response";
+import { api } from "../../convex/_generated/api";
+import { useAction, useMutation, useQuery } from "convex/react";
+/* @ts-ignore Temporary: types may not be picked up until dependency install */
+import { toast } from "sonner";
 
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
@@ -1068,10 +1079,24 @@ const SlideNavigation: React.FC<{
   currentSlide: Slide;
   onPrevious: () => void;
   onNext: () => void;
-}> = ({ currentIndex, totalSlides, currentSlide, onPrevious, onNext }) => {
+  onEnterAIMode: () => void;
+}> = ({
+  currentIndex,
+  totalSlides,
+  currentSlide,
+  onPrevious,
+  onNext,
+  onEnterAIMode,
+}) => {
   return (
     <div className="-translate-x-1/2 fixed bottom-8 left-1/2 w-auto transform">
-      <div className="flex items-center gap-2 rounded-3xl border border-white/20 bg-black/60 p-2 shadow-2xl backdrop-blur-md">
+      <div className="flex items-center gap-2 rounded-full border border-white/20 bg-black/60 p-2 shadow-2xl backdrop-blur-md transition-all duration-300">
+        <button
+          onClick={onEnterAIMode}
+            className="group flex items-center gap-2 rounded-full border border-violet-500/40 bg-gradient-to-r from-violet-600/30 to-fuchsia-600/30 p-4 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:from-violet-600/50 hover:to-fuchsia-600/50 hover:border-violet-400/60"
+        >
+          <Sparkles className="h-4 w-4 text-violet-300 transition group-hover:scale-110" />
+        </button>
         {/* Links Section */}
         {currentSlide.links && currentSlide.links.length > 0 ? (
           <>
@@ -1131,30 +1156,135 @@ interface StageInfoProps {
 
 const StageInfo: React.FC<StageInfoProps> = ({ stage }) => {
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+  // AI Chat state
+  const [aiMode, setAIMode] = useState(false);
+  const [input, setInput] = useState("");
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [chatId, setChatId] = useState<string | null>(null);
+  const pendingAssistantId = useRef<string | null>(null);
+
+  const createChat = useMutation(api.chats.createChat);
+  const streamStageChat = useAction((api as any).chatbot.streamStageChat);
+  const messages = useQuery(
+    api.message.getMessages,
+    chatId ? { chatId: chatId as any } : "skip"
+  ) as any[] | undefined;
+
+  // Monitor streaming status by watching for new content in assistant messages
+  useEffect(() => {
+    if (
+      isStreaming &&
+      pendingAssistantId.current &&
+      messages &&
+      messages.length > 0
+    ) {
+      const target = messages.find(
+        (m) => String(m._id) === String(pendingAssistantId.current)
+      );
+      // If we find content in the target message, streaming has completed
+      if (target && target.content && target.content.length > 0) {
+        try {
+          const parsed = JSON.parse(target.content);
+          // Check if it's a complete AI response (has type: 'ai-response')
+          if (parsed && parsed.type === 'ai-response') {
+            setIsStreaming(false);
+            pendingAssistantId.current = null;
+          }
+        } catch {
+          // If it's not JSON, assume it's an error message and stop streaming
+          setIsStreaming(false);
+          pendingAssistantId.current = null;
+        }
+      }
+    }
+  }, [messages, isStreaming]);
+
+
+
+  const ensureChat = useCallback(async () => {
+    if (chatId) return chatId;
+    const key = `stageChat:${stage._id}`;
+    const existing = window.localStorage.getItem(key);
+    if (existing) {
+      setChatId(existing);
+      return existing;
+    }
+    try {
+      const newId = await createChat({
+        title: `Stage Chat: ${stage.title}`,
+        model: "openai/gpt-oss-120b",
+      });
+      setChatId(String(newId));
+      window.localStorage.setItem(key, String(newId));
+      return String(newId);
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to start AI chat");
+      throw e;
+    }
+  }, [chatId, createChat, stage._id, stage.title]);
+
+  const resetChat = useCallback(async () => {
+    // Clear local storage and force new chat on next use
+    window.localStorage.removeItem(`stageChat:${stage._id}`);
+    setChatId(null);
+    setInput("");
+    setIsStreaming(false);
+    pendingAssistantId.current = null;
+    toast.success("Chat reset");
+  }, [stage._id]);
+
+  const handleSend = useCallback(
+    async (e?: React.FormEvent) => {
+      if (e) e.preventDefault();
+      if (!input.trim() || isStreaming) return;
+      try {
+        const cid = await ensureChat();
+        setIsStreaming(true);
+        const assistantId = await streamStageChat({
+          chatId: cid as any,
+          stageId: stage._id as any,
+          courseId: stage.courseId as any,
+          message: input.trim(),
+        });
+        pendingAssistantId.current = String(assistantId);
+        setInput("");
+      } catch (err: any) {
+        setIsStreaming(false);
+        pendingAssistantId.current = null;
+        toast.error(err?.message || "Error sending message");
+      }
+    },
+    [ensureChat, input, stage._id, stage.courseId, streamStageChat, isStreaming]
+  );
+
+  const handleKeyDownInput = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (!isStreaming) handleSend();
+    }
+  };
+
+  const currentSlide = stage.slides[currentSlideIndex];
 
   const handlePrevious = useCallback(() => {
     setCurrentSlideIndex((prev) => Math.max(0, prev - 1));
   }, []);
 
   const handleNext = useCallback(() => {
-    setCurrentSlideIndex((prev) => Math.min(stage.slides.length - 1, prev + 1));
+    setCurrentSlideIndex((prev) =>
+      Math.min(stage.slides.length - 1, prev + 1)
+    );
   }, [stage.slides.length]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "ArrowLeft") {
-        handlePrevious();
-      }
-      if (e.key === "ArrowRight") {
-        handleNext();
-      }
+      if (aiMode) return; // do not hijack arrow keys while typing
+      if (e.key === "ArrowLeft") handlePrevious();
+      if (e.key === "ArrowRight") handleNext();
     };
-
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handlePrevious, handleNext]);
-
-  const currentSlide = stage.slides[currentSlideIndex];
+  }, [handlePrevious, handleNext, aiMode]);
 
   if (!currentSlide) {
     return (
@@ -1166,6 +1296,23 @@ const StageInfo: React.FC<StageInfoProps> = ({ stage }) => {
       </main>
     );
   }
+
+  // Extract simplified conversation for panel (only user/assistant)
+  const conversation = useMemo(() => {
+    if (!messages) return [];
+    return messages
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((m) => {
+        let content = m.content || "";
+        try {
+          const parsed = JSON.parse(content);
+          if (parsed?.content) content = parsed.content;
+        } catch {
+          /* ignore */
+        }
+        return { id: m._id, role: m.role, content };
+      });
+  }, [messages]);
 
   return (
     <main className="relative min-h-[100svh] w-[100svw] px-4 py-4">
@@ -1182,12 +1329,10 @@ const StageInfo: React.FC<StageInfoProps> = ({ stage }) => {
         }}
       />
 
-      {/* Subtle grid lines for content area */}
+      {/* Subtle grid lines */}
       <div className="pointer-events-none absolute inset-0 z-15">
-        {/* Vertical lines */}
         <div className="absolute top-0 left-[20%] h-full w-px bg-white/10" />
         <div className="absolute top-0 left-[80%] h-full w-px bg-white/10" />
-        {/* Horizontal lines */}
         <div className="absolute top-[15%] left-0 h-px w-full bg-white/10" />
         <div className="absolute top-[85%] left-0 h-px w-full bg-white/10" />
       </div>
@@ -1200,13 +1345,103 @@ const StageInfo: React.FC<StageInfoProps> = ({ stage }) => {
           total={stage.slides.length}
         />
 
-        <SlideNavigation
-          currentIndex={currentSlideIndex}
-          currentSlide={currentSlide}
-          onNext={handleNext}
-          onPrevious={handlePrevious}
-          totalSlides={stage.slides.length}
-        />
+        {!aiMode && (
+          <SlideNavigation
+            currentIndex={currentSlideIndex}
+            currentSlide={currentSlide}
+            onNext={handleNext}
+            onPrevious={handlePrevious}
+            totalSlides={stage.slides.length}
+            onEnterAIMode={() => setAIMode(true)}
+          />
+        )}
+
+        {aiMode && (
+          <>
+            {/* Backdrop overlay for click-outside to close */}
+            <div
+              className="fixed inset-0 z-40 bg-black/20"
+              onClick={() => setAIMode(false)}
+            />
+
+            {/* Response panel (separate from input) */}
+            {conversation.length > 0 && (
+              <div className="pointer-events-auto fixed bottom-[160px] left-1/2 z-50 -translate-x-1/2 w-[min(900px,90vw)] max-h-[45vh] overflow-y-auto rounded-2xl border border-white/15 bg-black/70 p-4 shadow-2xl backdrop-blur-md scrollbar-thin scrollbar-thumb-white/10">
+                {conversation.map((m) => (
+                  <div key={m.id} className="mb-4 last:mb-0">
+                    <div
+                      className={`mb-2 font-medium text-xs ${
+                        m.role === "user" ? "text-violet-300" : "text-fuchsia-300"
+                      }`}
+                    >
+                      {m.role === "user" ? "You" : "AI"}
+                    </div>
+                    <div className="text-sm">
+                      {m.role === "assistant" ? (
+                        <Response className="prose-sm max-w-none">
+                          {m.content}
+                        </Response>
+                      ) : (
+                        <div className="whitespace-pre-wrap text-white/80">
+                          {m.content}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Input card */}
+            <div
+              className="fixed bottom-8 left-1/2 z-50 -translate-x-1/2 w-[min(900px,90vw)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <form
+                onSubmit={handleSend}
+                className="relative"
+              >
+                <div className="relative flex items-center rounded-full border border-white/20 bg-black/80 p-1 shadow-2xl backdrop-blur-md overflow-hidden">
+
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10">
+                    <Sparkles className="h-5 w-5 text-white/80" />
+                  </div>
+                  <textarea
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDownInput}
+                    placeholder={isStreaming ? "AI is responding..." : "Ask Sphere AI"}
+                    rows={1}
+                    disabled={isStreaming}
+                    className="flex-1 resize-none border-0 bg-transparent px-4 py-3 text-base text-white outline-none ring-0 placeholder:text-white/50 disabled:cursor-not-allowed disabled:opacity-60"
+                  />
+                  <div className="flex items-center gap-2 pr-2">
+                    <button
+                      type="button"
+                      onClick={resetChat}
+                      className="flex h-10 w-10 items-center justify-center rounded-full border border-red-400/30 bg-red-500/10 text-red-300 transition hover:border-red-400/50 hover:bg-red-500/20"
+                      title="Reset chat"
+                    >
+                      <ArrowClockwiseIcon className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!input.trim() || isStreaming}
+                      className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white transition enabled:hover:from-violet-600 enabled:hover:to-fuchsia-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      title={isStreaming ? "AI is responding..." : "Send message"}
+                    >
+                      {isStreaming ? (
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                      ) : (
+                        <ArrowRightIcon className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </>
+        )}
       </div>
     </main>
   );

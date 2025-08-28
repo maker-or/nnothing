@@ -180,7 +180,7 @@ export const streamChatCompletion = action({
           allMessages.map((msg) => msg.content).join(" "),
         );
 
-        const index = pinecone.index("design");
+        const index = pinecone.index("bda");
         const Semantic_search = await index.namespace("__default__").query({
           vector: embeddings,
           topK: 10,

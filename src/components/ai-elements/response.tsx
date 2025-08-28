@@ -213,7 +213,7 @@ const components: Options['components'] = {
   ),
 
   li: ({ node, children, className, ...props }) => (
-    <li className={cn(' leading-none tracking-tight text-[1.2em] list-[upper-roman]  ', className)} {...props}>
+    <li className={cn(' leading-none tracking-tight text-[1.2em] text-[#f7eee3]/80 list-[upper-roman]  ', className)} {...props}>
       {children}
     </li>
   ),
