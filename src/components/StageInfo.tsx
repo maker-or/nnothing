@@ -421,8 +421,8 @@ const FlashcardComponent = ({ flashcardsContent }: FlashComponentProps) => {
             className="absolute inset-0 h-full w-full"
             style={{ backfaceVisibility: "hidden" }}
           >
-            <div className="flex h-full w-full items-center justify-center rounded-xl border border-slate-700 bg-[#F7EEE3] p-8">
-              <p className="text-center font-medium text-2xl text-[#0c0c0c]">
+            <div className="flex h-full w-full items-center justify-center rounded-xl border-4 border-[#434343] bg-[#262626] p-8">
+              <p className="text-center font-medium text-2xl text-[#f7eee3]">
                 {currentFlashcard?.question}
               </p>
             </div>
@@ -434,8 +434,8 @@ const FlashcardComponent = ({ flashcardsContent }: FlashComponentProps) => {
               transform: "rotateY(180deg)",
             }}
           >
-            <div className="flex h-full w-full items-center justify-center rounded-xl border border-slate-700 bg-[#F7EEE3] p-8">
-              <p className="text-center text-[#0c0c0c] text-xl">
+            <div className="flex h-full w-full items-center justify-center rounded-xl border-4 border-[#434343] bg-[#262626] p-8">
+              <p className="text-center text-[#f7eee3] text-xl">
                 {currentFlashcard?.answer}
               </p>
             </div>
@@ -448,7 +448,7 @@ const FlashcardComponent = ({ flashcardsContent }: FlashComponentProps) => {
 
       <div className="mt-6 flex items-center justify-between">
         <Button
-          className="text-[#f7eee3] hover:bg-slate-800 disabled:opacity-30"
+          className="text-[#f7eee3] disabled:opacity-30"
           disabled={currentCard === 0}
           onClick={prevCard}
           variant="ghost"
@@ -460,7 +460,7 @@ const FlashcardComponent = ({ flashcardsContent }: FlashComponentProps) => {
           {currentCard + 1} / {flashcards.length}
         </span>
         <Button
-          className="text-[#f7eee3] hover:bg-slate-800 disabled:opacity-30"
+          className="text-[#f7eee3] disabled:opacity-30"
           disabled={currentCard === flashcards.length - 1}
           onClick={nextCard}
           variant="ghost"

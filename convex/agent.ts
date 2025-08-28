@@ -493,6 +493,14 @@ export const agent = action({
 
           If you finish without generating final text, you have FAILED your mission.`,
           prompt: `${Query}`,
+          providerOptions: {
+            google: {
+              thinkingConfig: {
+                thinkingBudget: -1,
+                includeThoughts: false,
+              },
+            },
+          },
         });
 
         // Track tool call completion
