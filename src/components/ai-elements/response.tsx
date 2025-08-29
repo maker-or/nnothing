@@ -151,6 +151,26 @@ function parseIncompleteMarkdown(text: string): string {
   // Remove leading <br> sequences immediately before a table
   result = result.replace(/(?:<br\s*\/?>\s*)+(?=\s*<table\b)/gi, '');
 
+  // Normalize alternative math delimiters to standard $$ blocks so remark-math parses them.
+  // OR-style recognition of two patterns:
+  // (A) Multi-line bracket blocks:
+  //     [
+  //       ...math...
+  //     ]
+  // (B) Single-line bracket inline math: [ expr ]
+  // We conservatively avoid transforming markdown links or image/link reference syntax.
+  result = result
+    // Pattern A: bare '[' and ']' on their own lines enclosing multi-line content.
+    .replace(/(^|\n)\[\s*\n([\s\S]*?)(\n)\]\s*(?=\n|$)/g, (_m, lead, body) => {
+      return `${lead}$$\n${body.trim()}\n$$`;
+    })
+    // Pattern B: inline bracketed math (no internal ']' or newline).
+    .replace(/(^|\s)\[\s*([^\]\n]+?)\s*\](?=\s|$)/g, (m, pre, expr) => {
+      // Skip if looks like a URL or reference (to avoid clobbering links)
+      if (/https?:\/\//i.test(expr) || /^[!A-Za-z0-9_-]+\s*:/.test(expr)) return m;
+      return `${pre}$$ ${expr.trim()} $$`;
+    });
+
   return result;
 }
 
