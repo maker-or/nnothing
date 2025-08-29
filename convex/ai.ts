@@ -220,7 +220,7 @@ export const streamChatCompletion = action({
         providerOptions: {
             groq: {
               reasoningFormat: 'parsed',
-              reasoningEffort: 'low',
+              reasoningEffort: 'medium',
               parallelToolCalls: true, // Enable parallel function calling (default: true)
               user: userId.subject, // Unique identifier for end-user (optional)
             },

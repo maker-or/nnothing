@@ -161,7 +161,7 @@ function parseIncompleteMarkdown(text: string): string {
   // We conservatively avoid transforming markdown links or image/link reference syntax.
   result = result
     // Pattern A: bare '[' and ']' on their own lines enclosing multi-line content.
-    .replace(/(^|\n)\[\s*\n([\s\S]*?)(\n)\]\s*(?=\n|$)/g, (_m, lead, body) => {
+    .replace(/(^|\n)[ \t]*\[\s*(?:\r?\n)([\s\S]*?)(?:\r?\n)[ \t]*\]\s*(?=\n|$)/g, (_m, lead, body) => {
       return `${lead}$$\n${body.trim()}\n$$`;
     })
     // Pattern B: inline bracketed math (no internal ']' or newline).
