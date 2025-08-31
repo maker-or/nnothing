@@ -135,7 +135,7 @@ export const streamChatCompletion = action({
         role: 'assistant',
         content: '',
         parentId: args.parentMessageId,
-        model: 'openai/gpt-oss-20b',
+        model: 'openai/gpt-oss-120b',
       }
     );
 
@@ -206,7 +206,7 @@ export const streamChatCompletion = action({
       }
 
 
-      const model = withTracing(groqClient("openai/gpt-oss-20b"), phClient, {
+      const model = withTracing(groqClient("openai/gpt-oss-120b"), phClient, {
         posthogDistinctId: userId.subject,
         posthogTraceId: randomUUID(),
         posthogProperties: { "conversation_id": args.chatId, },
@@ -217,26 +217,27 @@ export const streamChatCompletion = action({
       const response =  streamText({
         model: model,
         messages: allMessages,
-        providerOptions: {
-            groq: {
-              reasoningFormat: 'parsed',
-              reasoningEffort: 'low',
-              parallelToolCalls: true, // Enable parallel function calling (default: true)
-              user: userId.subject, // Unique identifier for end-user (optional)
-            },
-          },
+        // providerOptions: {
+        //     groq: {
+        //       reasoningFormat: 'parsed',
+        //       reasoningEffort: 'high',
+        //       parallelToolCalls: true, // Enable parallel function calling (default: true)
+        //       user: userId.subject, // Unique identifier for end-user (optional)
+        //     },
+        //   },
 
-        system: `You are SphereAI, a friendly study assistant focused on exam readiness. Use provided knowledge base/context as the primary source. Keep everything simple first; use technical terms only when essential and define them in one short line. For every answer:
+        system: `You are SphereAI, a friendly study assistant focused on exam readiness. Use provided knowledge base/context as the primary source. Keep everything simple first; use technical terms only when essential and define them in one short line. Most of the users are from global south like countries from India,Africa so try to maintain simple english For every answer:
 
-        Start with a short, plain-language summary (2–3 sentences).
+        Start with a short, plain-language explanation (2–3 sentences).
 
         Give 3–6 key points or steps in short bullets.
+
 
         Include one tiny example or analogy.
 
         Add “Need-to-know terms” with one-line definitions only if required.
 
-        End with “Exam must-knows” (3–5 bullets) and one short practice question with a brief solution.
+        End with “Exam must-knows” (3–5 bullets)
         If context is provided, say “Based on class notes/KB:” and build the response from it. If context is missing or conflicting, state it briefly, prefer course materials, and proceed with the simplest correct explanation. Keep sentences short. Avoid jargon unless exam-required.
 
         CRITICAL MATH RULES:
@@ -321,7 +322,7 @@ export const streamChatCompletion = action({
         type: 'ai-response',
         content: fullContent,
         reasoning: reasoningContent || null,
-        model: 'openai/gpt-oss-20b',
+        model: 'openai/gpt-oss-120b',
         timestamp: Date.now(),
       };
 
