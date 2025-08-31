@@ -104,12 +104,12 @@ const Chatting = () => {
         form.reset();
         if (textareaRef.current) {
           textareaRef.current.style.height = "48px";
-          textareaRef.current.style.overflowY = "hidden";
+            textareaRef.current.style.overflowY = "hidden";
         }
 
         await streamChatCompletion({
           chatId: convexChatId,
-            // NOTE: original prop was 'messages' expecting a string for streaming
+          // NOTE: original prop was 'messages' expecting a string for streaming
           messages: value.message,
           parentMessageId: userMessageId,
           useKnowledgeBase: useKnowledgeBase,
@@ -243,38 +243,21 @@ const Chatting = () => {
       />
 
       {/* Header */}
-      <header
-        className="
-          relative z-10 flex-shrink-0
-          px-3 py-3 md:px-6 md:py-6
-          bg-gradient-to-b from-black/80 via-black/40 to-transparent
-          backdrop-blur-sm
-          safe-top
-        "
-      >
-        <div className="flex items-center justify-between max-w-4xl mx-auto">
-          <div className="flex items-center gap-2 md:gap-4">
+
+
             <button
               aria-label="Back to Learning"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full
-                         text-white/70 hover:text-white active:scale-95 transition
+              className=" z-10 m-2 inline-flex h-10 w-10 items-center justify-center rounded-full
+                         text-white/70 hover:text-white active:scale-95 transition absolute left-2
                          bg-white/5 hover:bg-white/10"
               onClick={() => router.push("/learning")}
             >
               <ArrowLeftIcon size={20} />
             </button>
-            <h1
-              className="text-base font-medium line-clamp-1 max-w-[60vw] md:max-w-none md:text-lg text-white/90"
-              title={chat.title}
-            >
-              {chat.title}
-            </h1>
-          </div>
-          <div className="hidden md:flex items-center gap-2">
-            {/* Future header actions */}
-          </div>
-        </div>
-      </header>
+
+
+
+
 
       {/* Messages Scroll Area */}
       <div
@@ -286,8 +269,7 @@ const Chatting = () => {
           pt-2 md:pt-4
         "
         id="chat-scroll-region"
-        aria-live="polite"
-      >
+        aria-live="polite">
         <div className="mx-auto max-w-4xl space-y-4 md:space-y-6">
           {messages && messages.length > 0 ? (
             messages.map((message) => {
@@ -303,13 +285,13 @@ const Chatting = () => {
                 >
                   <div
                     className={`
-                      group rounded-2xl px-4 py-3 md:px-5 md:py-4
+                      group rounded-2xl  px-1 py-1 md:px-3 md:py-3
                       shadow-sm md:shadow
                       text-[13px] leading-relaxed md:text-sm
                       break-words whitespace-pre-wrap
                       ${isUser
-                        ? "bg-white/10 border border-white/15 text-white max-w-[85%] md:max-w-[70%]"
-                        : " text-white/90 max-w-[95%] md:max-w-[80%]"
+                        ? "bg-white/10 border border-white/15  text-white max-w-[85%] md:max-w-[70%]"
+                        : " text-white/90 max-w-[95%]  md:max-w-[80%]"
                       }
                       backdrop-blur-sm
                     `}
@@ -350,14 +332,13 @@ const Chatting = () => {
         className="
           sticky bottom-0 z-20
           w-full
-
           px-2 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)]
           md:px-6 md:pt-4 md:pb-6
         "
         role="form"
         aria-label="Send a message"
       >
-        <div className="mx-auto max-w-4xl">
+        <div className="mx-auto max-w-4xl items-center justify-center">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -369,19 +350,19 @@ const Chatting = () => {
               {({ state, handleBlur, handleChange }) => (
                 <div
                   className="
-                    relative flex items-end gap-2 md:gap-3
-                    rounded-2xl border border-white/15
-                    bg-black/50 backdrop-blur-md
+                    relative mx-auto flex items-center justify-center gap-2 md:gap-3
+                    rounded-3xl w-3/4  border-2 border-white/15
+                     backdrop-blur-md
                     focus-within:border-white/30
                     transition
-                    px-3 py-2 md:px-5 md:py-3
+                    px-4 py-3 md:px-5 md:py-4
                   "
                 >
                   <div className="flex-1 min-w-0">
                     <textarea
                       ref={textareaRef}
                       className="
-                        block w-full resize-none border-0 bg-transparent
+                        block w-full resize-none border-0
                         text-sm md:text-base text-white placeholder:text-white/40
                         focus:outline-none focus:ring-0
                         leading-relaxed
@@ -436,7 +417,7 @@ const Chatting = () => {
                         transition-colors duration-200
                         ${
                           useKnowledgeBase
-                            ? "bg-white/20 text-white"
+                            ? " text-blue-400"
                             : "text-white/50 hover:text-white hover:bg-white/10"
                         }
                       `}
