@@ -135,7 +135,7 @@ export const streamChatCompletion = action({
         role: 'assistant',
         content: '',
         parentId: args.parentMessageId,
-        model: 'openai/gpt-oss-120b',
+        model: 'openai/gpt-oss-20b',
       }
     );
 
@@ -206,7 +206,7 @@ export const streamChatCompletion = action({
       }
 
 
-      const model = withTracing(groqClient("openai/gpt-oss-120b"), phClient, {
+      const model = withTracing(groqClient("openai/gpt-oss-20b"), phClient, {
         posthogDistinctId: userId.subject,
         posthogTraceId: randomUUID(),
         posthogProperties: { "conversation_id": args.chatId, },
@@ -220,7 +220,7 @@ export const streamChatCompletion = action({
         providerOptions: {
             groq: {
               reasoningFormat: 'parsed',
-              reasoningEffort: 'medium',
+              reasoningEffort: 'low',
               parallelToolCalls: true, // Enable parallel function calling (default: true)
               user: userId.subject, // Unique identifier for end-user (optional)
             },

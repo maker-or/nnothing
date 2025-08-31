@@ -19,7 +19,6 @@ function parseIncompleteMarkdown(text: string): string {
   if (!text || typeof text !== 'string') {
     return text;
   }
-
   let result = text;
   console.log('parseIncompleteMarkdown input:', JSON.stringify(text));
 
@@ -107,11 +106,9 @@ function parseIncompleteMarkdown(text: string): string {
   if (inlineCodeMatch) {
     // Check if we're dealing with a code block (triple backticks)
     const allTripleBackticks = (result.match(/```/g) || []).length;
-
     // If we have an odd number of ```
     // In this case, don't complete inline code
     const insideIncompleteCodeBlock = allTripleBackticks % 2 === 1;
-
     if (!insideIncompleteCodeBlock) {
       // Count the number of single backticks that are NOT part of triple backticks
       let singleBacktickCount = 0;
@@ -119,9 +116,8 @@ function parseIncompleteMarkdown(text: string): string {
         if (result[i] === '`') {
           // Check if this backtick is part of a triple backtick sequence
           const isTripleStart = result.substring(i, i + 3) === '```';
-          const isTripleMiddle = i > 0 && result.substring(i - 1, i + 2) === '``'
+          const isTripleMiddle = i > 0 && result.substring(i - 1, i + 2) === '``';
           const isTripleEnd = i > 1 && result.substring(i - 2, i + 1) === '```';
-
           if (!isTripleStart && !isTripleMiddle && !isTripleEnd) {
             singleBacktickCount++;
           }
@@ -152,40 +148,114 @@ function parseIncompleteMarkdown(text: string): string {
   // Remove leading <br> sequences immediately before a table
   result = result.replace(/(?:<br\s*\/?>\s*)+(?=\s*<table\b)/gi, '');
 
-  // Normalize alternative math delimiters to standard $$ blocks so remark-math parses them.
-  // OR-style recognition of two patterns:
-  // (A) Multi-line bracket blocks:
-  //     [
-  //       ...math...
-  //     ]
-  // (B) Single-line bracket inline math: [ expr ]
-  // We conservatively avoid transforming markdown links or image/link reference syntax.
-  console.log('Before bracket math conversion:', JSON.stringify(result));
+  // Enhanced math delimiter conversion
+  console.log('Before math conversion:', JSON.stringify(result));
 
-  result = result
-    // Pattern A: bare '[' and ']' on their own lines enclosing multi-line content.
-    .replace(/(^|\n)[ \t]*\[\s*\r?\n([\s\S]*?)\r?\n[ \t]*\]\s*(?=\n|$)/g, (_m, lead, body) => {
-      console.log('Pattern A matched:', { match: _m, lead, body });
-      return `${lead}$$\n${body.trim()}\n$$`;
-    })
-    // Pattern B: inline bracketed math (no internal ']' or newline).
-    .replace(/(^|\s)\[\s*([^\]\n]+?)\s*\](?=\s|$)/g, (m, pre, expr) => {
-      console.log('Pattern B matched:', { match: m, pre, expr });
-      // Skip if looks like a URL or reference (to avoid clobbering links)
-      if (/https?:\/\//i.test(expr) || /^[!A-Za-z0-9_-]+\s*:/.test(expr)) {
-        console.log('Skipping Pattern B match (looks like URL/reference)');
-        return m;
+  // Step 1: Handle bracket-delimited display math blocks
+  // Step 1: Handle bracket-delimited display math blocks
+  result = result.replace(
+    /(^|\n)\s*\[\s*\r?\n([\s\S]*?)\r?\n\s*\]\s*(?=\r?\n|$)/gm,
+    (match, leadingContent, mathContent) => {
+      console.log('Multi-line bracket math found:', { match, mathContent });
+      return `${leadingContent}$$\n${mathContent.trim()}\n$$`;
+    }
+  );
+
+
+  // Step 2: Handle single-line bracket math [math]
+  result = result.replace(
+    /(^|\n)\s*\[\s*([^\[\]\r\n]+?)\s*\]\s*(?=\r?\n|$)/gm,
+    (match, leadingContent, mathContent) => {
+      console.log('Single-line bracket math found:', { match, mathContent });
+      if (/^\d+$/.test(mathContent.trim()) || /^[A-Za-z]+\s+\d{4}$/.test(mathContent.trim())) {
+        return match;
       }
-      return `${pre}$${expr.trim()}$`;
-    })
-    // Pattern C: handle bracket blocks at end of string without trailing newline
-    .replace(/(^|\n)[ \t]*\[\s*\r?\n([\s\S]*?)\r?\n[ \t]*\]$/g, (_m, lead, body) => {
-      console.log('Pattern C matched (end of string):', { match: _m, lead, body });
-      return `${lead}$$\n${body.trim()}\n$$`;
-    });
+      return `${leadingContent}$$${mathContent.trim()}$$`;
+    }
+  );
 
-  console.log('After bracket math conversion:', JSON.stringify(result));
+  // Step 3: Handle parentheses-wrapped inline math
+  // This is more complex because we need to distinguish math from regular parentheses
+  result = result.replace(
+    /(\s|^)\(([^()]*(?:\\[a-zA-Z]+|\{[^}]*\}|\\.|[^()\\])*)\)(?=\s|$|[.,;!?])/g,
+    (match, prefix, content) => {
+      console.log('Potential parentheses math found:', { match, content });
 
+      // Check if content looks like math (contains LaTeX commands or math symbols)
+      const mathIndicators = [
+        /\\[a-zA-Z]+/, // LaTeX commands like \mu, \frac, \sqrt
+        /\^[{0-9]/, // Superscripts
+        /_[{0-9]/, // Subscripts
+        /\\times|\\div|\\pm|\\mp|\\cdot/, // Math operators
+        /\\[lg]eq|\\neq|\\approx|\\equiv/, // Relations
+        /\\sum|\\prod|\\int|\\sqrt/, // Large operators and functions
+        /\\[a-zA-Z]*{/, // Commands with braces
+        /[α-ωΑ-Ω]/, // Greek letters
+        /=.*\\frac/, // Equals with fractions
+        /=.*\^/, // Equals with exponents
+        /\\sqrt\{/, // Square root function
+        /\\approx/, // Approximation symbol
+        /^\s*=/, // Starting with equals (like your examples)
+      ];
+      const isLikelyMath = mathIndicators.some(pattern => pattern.test(content));
+
+      if (isLikelyMath) {
+        console.log('Converting parentheses to inline math:', content);
+        return `${prefix}\\(${content}\\)`;
+      }
+
+      // Additional check: if content starts with = and contains math symbols
+      const startsWithEqualsAndHasMath = /^\s*=/.test(content) &&
+        (/\\[a-zA-Z]+|\^|_|\{|\}/.test(content));
+
+
+
+      if (isLikelyMath || startsWithEqualsAndHasMath) {
+        console.log('Converting parentheses to inline math:', content);
+        return `\\(${content}\\)`;
+      }
+
+
+      return match;
+    }
+
+
+
+
+  );
+
+
+  // Step 4: Handle special case of nested parentheses in math expressions
+  // This catches cases where we have math expressions with nested parentheses
+  result = result.replace(
+    /([A-Za-z\s]+)\s+\(([^()]*\([^()]*\)[^()]*(?:\\[a-zA-Z]+|\\.|[^()\\])*)\)/g,
+    (match, prefix, content) => {
+      console.log('Nested parentheses math found:', { match, prefix, content });
+
+      const mathIndicators = [
+        /\\[a-zA-Z]+/,
+        /\^[{0-9]/,
+        /_[{0-9]/,
+        /\\times|\\div|\\pm|\\mp/,
+        /\\[lg]eq|\\neq|\\approx/,
+        /\\sum|\\prod|\\int|\\sqrt/,
+        /=.*\\frac/,
+        /=.*\^/,
+        /^\s*=/,
+      ];
+
+      const isLikelyMath = mathIndicators.some(pattern => pattern.test(content));
+
+      if (isLikelyMath) {
+        console.log('Converting nested parentheses to inline math:', content);
+        return `${prefix} \\(${content}\\)`;
+      }
+
+      return match;
+    }
+  );
+
+  console.log('After math conversion:', JSON.stringify(result));
   console.log('parseIncompleteMarkdown output:', JSON.stringify(result));
   return result;
 }
@@ -223,12 +293,11 @@ const components: Options['components'] = {
   code: ({ node, children, className, ...props }) => {
     // Check if it's inline code (not inside pre)
     const isInline = !className?.includes('language-');
-
     if (isInline) {
       return (
         <code
           className={cn(
-            'px-1.5 py-0.5 rounded  text-white/80 text-[0.8em] item-center justify-center  border-white/20 bg-white/10 font-mono text-sm border ',
+            'px-1.5 py-0.5 rounded text-white/80 text-[0.8em] item-center justify-center border-white/20 bg-white/10 font-mono text-sm border',
             className
           )}
           {...props}
@@ -237,31 +306,30 @@ const components: Options['components'] = {
         </code>
       );
     }
-
     // For code blocks, return as is (handled by pre component and CodeBlock)
     return <code className={className} {...props}>{children}</code>;
   },
 
   ol: ({ node, children, className, ...props }) => (
-    <ol className={cn('ml-4 mb-4 list-outside  list-decimal ', className)} {...props}>
+    <ol className={cn('ml-4 mb-4 list-outside list-decimal', className)} {...props}>
       {children}
     </ol>
   ),
 
   li: ({ node, children, className, ...props }) => (
-    <li className={cn(' leading-none tracking-tight text-[1.2em] text-[#f7eee3]/80 list-[upper-roman]  ', className)} {...props}>
+    <li className={cn('leading-none tracking-tight text-[1.2em] text-[#f7eee3]/80 list-[upper-roman]', className)} {...props}>
       {children}
     </li>
   ),
 
   ul: ({ node, children, className, ...props }) => (
-    <ul className={cn('ml-4 mb-4 list-outside list-disc ', className)} {...props}>
+    <ul className={cn('ml-4 mb-4 list-outside list-disc', className)} {...props}>
       {children}
     </ul>
   ),
 
   strong: ({ node, children, className, ...props }) => (
-    <span className={cn('font-medium  leading-relaxed tracking-tight', className)} {...props}>
+    <span className={cn('font-medium leading-relaxed tracking-tight', className)} {...props}>
       {children}
     </span>
   ),
@@ -276,9 +344,6 @@ const components: Options['components'] = {
   a: ({ node, children, className, href, ...props }) => {
     // Check if this looks like a citation link
     const isCitation = typeof children === 'string' && /^\[?\d+\]?$|^\[?[A-Z][a-z]+ \d{4}\]?$/.test(children);
-
-
-
     return (
       <a
         className={cn('font-medium text-blue-400 underline hover:text-blue-300 transition-colors', className)}
@@ -294,7 +359,7 @@ const components: Options['components'] = {
 
   h1: ({ node, children, className, ...props }) => (
     <h1
-      className={cn('mt-8 mb-4  font-bold leading-none tracking-tighter text-[2em] border-b border-green-400/30 pb-2', className)}
+      className={cn('mt-8 mb-4 font-bold leading-none tracking-tighter text-[2em] border-b border-green-400/30 pb-2', className)}
       {...props}
     >
       {children}
@@ -303,7 +368,7 @@ const components: Options['components'] = {
 
   h2: ({ node, children, className, ...props }) => (
     <h2
-      className={cn('mt-7 mb-3  leading-none font-stretch-semi-condensed 200 tracking-tighter font-normal text-[2em] border-b border-blue-400/20 pb-2', className)}
+      className={cn('mt-7 mb-3 leading-none font-stretch-semi-condensed tracking-tighter font-normal text-[2em] border-b border-blue-400/20 pb-2', className)}
       {...props}
     >
       {children}
@@ -311,13 +376,13 @@ const components: Options['components'] = {
   ),
 
   h3: ({ node, children, className, ...props }) => (
-    <h3 className={cn('mt-6 mb-3  font-stretch-semi-condensed  leading-none tracking-tighter font-normal text-[1.8em]', className)} {...props}>
+    <h3 className={cn('mt-6 mb-3 font-stretch-semi-condensed leading-none tracking-tighter font-normal text-[1.8em]', className)} {...props}>
       {children}
     </h3>
   ),
 
   h4: ({ node, children, className, ...props }) => (
-    <h4 className={cn('mt-5 mb-2   font-stretch-semi-condensed leading-none tracking-tight font-semibold text-lg', className)} {...props}>
+    <h4 className={cn('mt-5 mb-2 font-stretch-semi-condensed leading-none tracking-tight font-semibold text-lg', className)} {...props}>
       {children}
     </h4>
   ),
@@ -341,7 +406,7 @@ const components: Options['components'] = {
   blockquote: ({ node, children, className, ...props }) => (
     <blockquote
       className={cn(
-        'my-4 pl-4 border-l-4 border-white/20  rounded-sm leading-none  bg-white/10 py-2  ',
+        'my-4 pl-4 border-l-4 border-white/20 rounded-sm leading-none bg-white/10 py-2',
         className
       )}
       {...props}
@@ -350,15 +415,22 @@ const components: Options['components'] = {
     </blockquote>
   ),
 
-  // Math components - enhanced styling for KaTeX output
+  // Enhanced div component for display math
   div: ({ node, children, className, ...props }) => {
+    console.log('Div component:', { className, children });
+
     // Check if this is a KaTeX math display block
     if (className === 'math math-display' || className?.includes('katex-display')) {
       return (
         <div
           className={cn(
-            'my-6 p-4 bg-gray-900/30 border border-gray-600/50 text-[1.2em] rounded-lg overflow-x-auto',
-            'text-center [&_.katex]:text-gray-100 [&_.katex-html]:text-gray-100',
+            'my-6 p-4 bg-gray-900/30 border border-gray-600/50 rounded-lg overflow-x-auto',
+            'text-center text-white text-[1.2em]',
+            // Enhanced KaTeX styling with !important for better override
+            '[&_.katex]:!text-white [&_.katex-html]:!text-white [&_.katex-display]:!text-white',
+            '[&_.katex_.base]:!text-white [&_.katex_.mord]:!text-white',
+            '[&_.katex_.mbin]:!text-blue-300 [&_.katex_.mrel]:!text-green-300',
+            '[&_.katex_.mop]:!text-yellow-300 [&_.katex_.mpunct]:!text-gray-300',
             'katex-display-wrapper',
             className
           )}
@@ -371,13 +443,21 @@ const components: Options['components'] = {
     return <div className={className} {...props}>{children}</div>;
   },
 
+  // Enhanced span component for inline math
   span: ({ node, children, className, ...props }) => {
+    console.log('Span component:', { className, children });
+
     // Check if this is KaTeX inline math
     if (className === 'math math-inline' || className?.includes('katex')) {
       return (
         <span
           className={cn(
-            'inline-block px-1 py-0.5 text-[1.2em] [&_.katex]:text-gray-100 [&_.katex-html]:text-gray-100',
+            'inline-block px-1 py-0.5 text-[1.2em]',
+            // Enhanced KaTeX styling for inline math
+            '[&_.katex]:!text-white [&_.katex-html]:!text-white',
+            '[&_.katex_.base]:!text-white [&_.katex_.mord]:!text-white',
+            '[&_.katex_.mbin]:!text-blue-300 [&_.katex_.mrel]:!text-green-300',
+            '[&_.katex_.mop]:!text-yellow-300 [&_.katex_.mpunct]:!text-gray-300',
             'katex-inline-wrapper',
             className
           )}
@@ -407,7 +487,7 @@ const components: Options['components'] = {
 
   thead: ({ node, children, className, ...props }) => (
     <thead
-      className={cn(' text-gray-200 p-2 text-[1.2em] rounded-t-2xl ', className)}
+      className={cn('text-gray-200 p-2 text-[1.2em] rounded-t-2xl', className)}
       {...props}
     >
       {children}
@@ -415,7 +495,7 @@ const components: Options['components'] = {
   ),
 
   tbody: ({ node, children, className, ...props }) => (
-    <tbody className={cn('text-gray-300  text-[1.2em] bg-[#252525] ', className)} {...props}>
+    <tbody className={cn('text-gray-300 text-[1.2em] bg-[#252525]', className)} {...props}>
       {children}
     </tbody>
   ),
@@ -423,7 +503,7 @@ const components: Options['components'] = {
   tr: ({ node, children, className, ...props }) => (
     <tr
       className={cn(
-        'border-b border-[#161718]  hover:bg-[#161718]/80 transition-colors',
+        'border-b border-[#161718] hover:bg-[#161718]/80 transition-colors',
         className
       )}
       {...props}
@@ -435,7 +515,7 @@ const components: Options['components'] = {
   th: ({ node, children, className, ...props }) => (
     <th
       className={cn(
-        '  px-4 py-3  text-left font-stretch-condensed text-[1.2em]   ',
+        'px-4 py-3 text-left font-stretch-condensed text-[1.2em]',
         className
       )}
       {...props}
@@ -447,7 +527,7 @@ const components: Options['components'] = {
   td: ({ node, children, className, ...props }) => (
     <td
       className={cn(
-        '  px-4 py-3 text-gray-200',
+        'px-4 py-3 text-gray-200',
         className
       )}
       {...props}
@@ -470,6 +550,7 @@ const components: Options['components'] = {
       }
       return null;
     };
+
     if (children && typeof children === 'object' && 'props' in (children as any)) {
       const el = children as any;
       language = extractLang(el.props?.className) ?? language;
@@ -487,7 +568,6 @@ const components: Options['components'] = {
 
     // Extract code content from children
     let code = '';
-
     if (typeof children === 'string') {
       code = children;
     } else if (children && typeof children === 'object') {
@@ -576,11 +656,11 @@ export const Response = memo(
       <div
         className={cn(
           'size-full prose prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
-          // KaTeX styling overrides
-          '[&_.katex]:text-gray-100 text-[1em] [&_.katex-html]:text-gray-100 [&_.katex-display]:text-gray-100',
-          '[&_.katex_.base]:text-gray-100 text-[1em] [&_.katex_.mord]:text-gray-100 [&_.katex_.mbin]:text-blue-300',
-          '[&_.katex_.mrel]:text-green-300 text-[1em] [&_.katex_.mop]:text-yellow-300 [&_.katex_.mpunct]:text-gray-300',
-          '[&_.katex-display]:my-6 text-[1em] [&_.katex-display]:text-center',
+          // Enhanced KaTeX styling overrides with higher specificity
+          '[&_.katex]:!text-gray-100 [&_.katex-html]:!text-gray-100 [&_.katex-display]:!text-gray-100',
+          '[&_.katex_.base]:!text-gray-100 [&_.katex_.mord]:!text-gray-100 [&_.katex_.mbin]:!text-blue-300',
+          '[&_.katex_.mrel]:!text-green-300 [&_.katex_.mop]:!text-yellow-300 [&_.katex_.mpunct]:!text-gray-300',
+          '[&_.katex-display]:!my-6 [&_.katex-display]:!text-center',
           className,
         )}
         {...props}
@@ -590,7 +670,13 @@ export const Response = memo(
           rehypePlugins={[[rehypeKatex, {
             strict: false,
             throwOnError: false,
-            errorColor: '#cc0000',
+            errorColor: '#ff6b6b',
+            output: 'html',
+            fleqn: false,
+            leqno: false,
+            minRuleThickness: 0.04,
+            maxSize: Infinity,
+            maxExpand: 1000,
             macros: {
               "\\RR": "\\mathbb{R}",
               "\\NN": "\\mathbb{N}",
@@ -598,10 +684,7 @@ export const Response = memo(
               "\\QQ": "\\mathbb{Q}",
               "\\CC": "\\mathbb{C}",
             },
-            trust: true,
-            fleqn: false,
-            leqno: false,
-            minRuleThickness: 0.04,
+
           }]]}
           remarkPlugins={[remarkMath, remarkGfm]}
           allowedImagePrefixes={allowedImagePrefixes ?? ['*']}
