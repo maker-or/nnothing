@@ -247,7 +247,7 @@ export const streamChatCompletion = action({
         ❌ NEVER use plain text for mathematical expressions.
 
         ### When to Use Each:
-           - **Display math** "$$...$$": Complex equations, multi-line formulas, important standalone expressions
+           - **Display math** "$$...$$": Complex equations, multi-line formulas, important standalone expressions and for all the math expressions
            - **Inline math** "$...$": Variables, simple expressions, mathematical terms within sentences
 
         Follow these delimiters and diagram rules exactly to ensure proper rendering

@@ -21,6 +21,7 @@ function parseIncompleteMarkdown(text: string): string {
   }
 
   let result = text;
+  console.log('parseIncompleteMarkdown input:', JSON.stringify(text));
 
   // Handle incomplete links and images
   // Pattern: [...] or ![...] where the closing ] is missing
@@ -159,18 +160,33 @@ function parseIncompleteMarkdown(text: string): string {
   //     ]
   // (B) Single-line bracket inline math: [ expr ]
   // We conservatively avoid transforming markdown links or image/link reference syntax.
+  console.log('Before bracket math conversion:', JSON.stringify(result));
+
   result = result
     // Pattern A: bare '[' and ']' on their own lines enclosing multi-line content.
-    .replace(/(^|\n)[ \t]*\[\s*(?:\r?\n)([\s\S]*?)(?:\r?\n)[ \t]*\]\s*(?=\n|$)/g, (_m, lead, body) => {
+    .replace(/(^|\n)[ \t]*\[\s*\r?\n([\s\S]*?)\r?\n[ \t]*\]\s*(?=\n|$)/g, (_m, lead, body) => {
+      console.log('Pattern A matched:', { match: _m, lead, body });
       return `${lead}$$\n${body.trim()}\n$$`;
     })
     // Pattern B: inline bracketed math (no internal ']' or newline).
     .replace(/(^|\s)\[\s*([^\]\n]+?)\s*\](?=\s|$)/g, (m, pre, expr) => {
+      console.log('Pattern B matched:', { match: m, pre, expr });
       // Skip if looks like a URL or reference (to avoid clobbering links)
-      if (/https?:\/\//i.test(expr) || /^[!A-Za-z0-9_-]+\s*:/.test(expr)) return m;
-      return `${pre}$$ ${expr.trim()} $$`;
+      if (/https?:\/\//i.test(expr) || /^[!A-Za-z0-9_-]+\s*:/.test(expr)) {
+        console.log('Skipping Pattern B match (looks like URL/reference)');
+        return m;
+      }
+      return `${pre}$${expr.trim()}$`;
+    })
+    // Pattern C: handle bracket blocks at end of string without trailing newline
+    .replace(/(^|\n)[ \t]*\[\s*\r?\n([\s\S]*?)\r?\n[ \t]*\]$/g, (_m, lead, body) => {
+      console.log('Pattern C matched (end of string):', { match: _m, lead, body });
+      return `${lead}$$\n${body.trim()}\n$$`;
     });
 
+  console.log('After bracket math conversion:', JSON.stringify(result));
+
+  console.log('parseIncompleteMarkdown output:', JSON.stringify(result));
   return result;
 }
 
@@ -538,11 +554,23 @@ export const Response = memo(
     parseIncompleteMarkdown: shouldParseIncompleteMarkdown = true,
     ...props
   }: ResponseProps) => {
+    console.log('Response component props:', {
+      shouldParseIncompleteMarkdown,
+      childrenType: typeof children,
+      childrenLength: typeof children === 'string' ? children.length : 'N/A'
+    });
+
     // Parse the children to remove incomplete markdown tokens if enabled
     const parsedChildren =
       typeof children === 'string' && shouldParseIncompleteMarkdown
         ? parseIncompleteMarkdown(children)
         : children;
+
+    console.log('Response component after parsing:', {
+      originalLength: typeof children === 'string' ? children.length : 'N/A',
+      parsedLength: typeof parsedChildren === 'string' ? parsedChildren.length : 'N/A',
+      wasProcessed: children !== parsedChildren
+    });
 
     return (
       <div
