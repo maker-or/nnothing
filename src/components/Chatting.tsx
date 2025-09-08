@@ -16,6 +16,7 @@ import { api } from "../../convex/_generated/api";
 import { useConvexAuth } from "convex/react";
 import { Response } from "@/components/ai-elements/response";
 
+
 // -------- Parsing helper (unchanged) ----------
 const parseMessageContent = (content: string | string[]) => {
   if (Array.isArray(content)) {
@@ -68,6 +69,10 @@ const Chatting = () => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showChatPalette, setShowChatPalette] = useState(false);
   const [useKnowledgeBase, setUseKnowledgeBase] = useState(false);
+  const [autoFollow, setAutoFollow] = useState(true);
+  const [showJumpButton, setShowJumpButton] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const prevMessagesLength = useRef(0);
 
   const convexChatId = chatID as Id<"chats">;
 
@@ -125,8 +130,16 @@ const Chatting = () => {
 
   // Scroll to bottom on new messages
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    const currentLength = messages?.length || 0;
+    const hasNewMessage = currentLength > prevMessagesLength.current;
+    prevMessagesLength.current = currentLength;
+    if (hasNewMessage && !autoFollow) {
+      setShowJumpButton(true);
+    }
+    if (autoFollow) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, autoFollow]);
 
   // Title
   useEffect(() => {
@@ -148,6 +161,22 @@ const Chatting = () => {
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  const handleScroll = () => {
+    if (!scrollRef.current) return;
+    const { scrollTop, clientHeight, scrollHeight } = scrollRef.current;
+    const isAtBottom = scrollTop + clientHeight >= scrollHeight - 10;
+    if (isAtBottom) {
+      if (!autoFollow) {
+        setAutoFollow(true);
+        setShowJumpButton(false);
+      }
+    } else {
+      if (autoFollow) {
+        setAutoFollow(false);
+      }
+    }
+  };
 
   // ----- States (loading / error / invalid) -----
   if (!chatID) {
@@ -261,6 +290,8 @@ const Chatting = () => {
 
       {/* Messages Scroll Area */}
       <div
+        ref={scrollRef}
+        onScroll={handleScroll}
         className="
           relative z-0 flex-1 overflow-y-auto
           scroll-smooth
@@ -492,6 +523,20 @@ const Chatting = () => {
           </form>
         </div>
       </div>
+
+      {/* Jump to latest button */}
+      {showJumpButton && (
+        <button
+          className="fixed bottom-20 right-4 z-30 rounded-full bg-white/10 px-4 py-2 text-white hover:bg-white/20 transition"
+          onClick={() => {
+            setAutoFollow(true);
+            setShowJumpButton(false);
+            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+          }}
+        >
+          Jump to latest
+        </button>
+      )}
 
       {/* Command Palette */}
       <ChatCommandPalette

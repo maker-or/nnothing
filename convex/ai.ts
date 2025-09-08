@@ -7,10 +7,33 @@ import { api, internal } from './_generated/api';
 import { action } from './_generated/server';
 import { withTracing } from "@posthog/ai"
 import { PostHog } from 'posthog-node';
+import { generateObject, tool,  streamText , generateText } from "ai";
+import { z } from "zod";
 import { createGroq } from '@ai-sdk/groq';
-import { streamText } from 'ai';
 import { randomUUID } from 'crypto';
 import { Pinecone } from "@pinecone-database/pinecone";
+
+
+
+const MermaidSchema = z.object({
+  language: z.string().describe("Programming language for the code"),
+  code: z
+    .string()
+    .min(10)
+    .describe("The actual code in the specified language"),
+});
+
+
+
+const KnowledgeSchema = z.object({
+  information: z
+    .string()
+    .min(10)
+    .describe("contains the information from the knowledge base"),
+});
+
+
+
 
 
 
@@ -174,109 +197,229 @@ export const streamChatCompletion = action({
       });
 
 
-      // Only search knowledge base if explicitly requested
-      if (args.useKnowledgeBase) {
-        const embeddings = await getEmbedding(
-          allMessages.map((msg) => msg.content).join(" "),
-        );
 
-        const index = pinecone.index("bda");
-        const Semantic_search = await index.namespace("__default__").query({
-          vector: embeddings,
-          topK: 10,
-          includeMetadata: true,
-          includeValues: false,
-        });
+      const Mermaid = tool({
+        description: "it is used to genrate the Mermaind diagrams",
+        inputSchema: z.object({
+          query: z.string().min(2).describe("Programming topic to get code for"),
+        }),
+        execute: async ({ query }) => {
+          console.log(`🔍 TOOL CALL - Mermaid: ${query}`);
 
-        const textContent = Semantic_search.matches
-          .map((match) => match.metadata?.text)
-          .filter(Boolean);
-        console.log("the textcontent is : ", textContent);
-        const resultsString = textContent.join("\n\n");
-        console.log("############################################");
-        console.log("the resultsString is : ", resultsString);
-        console.log("############################################");
-        // Add the retrieved context as a system message
-        if (resultsString) {
-          allMessages.unshift({
-            role: "assistant",
-            content: `Relevant context from knowledge base:\n\n${resultsString} when using this make sure that you also specify the sources at the end of the respose`,
+          const result = await generateObject({
+            model: groqClient("openai/gpt-oss-120b"),
+            schema: MermaidSchema,
+            system:`you are a mermaid diagram generator , just provide the mermaid code for the given query , no more or no less , no unnecessary details details and explation
+            <SystemPrompt>
+              <Purpose>
+                Guide the assistant to generate valid MermaidJS diagrams based on user instructions. Diagrams should be syntactically correct and use Mermaid best practices.
+              </Purpose>
+              <GeneralInstructions>
+                <Instruction>Always start diagrams with a valid Mermaid type declaration (e.g., flowchart, sequenceDiagram, classDiagram, etc.).</Instruction>
+                <Instruction>After the type, include diagram content that defines nodes, edges, relationships, or structure as needed.</Instruction>
+                <Instruction>
+                  Strictly follow Mermaid syntax. Only use supported diagram types and syntax. Typos or unsupported words will break rendering.
+                </Instruction>
+                <Instruction>Use concise, plain, and unambiguous code.</Instruction>
+              </GeneralInstructions>
+              <SupportedDiagramTypes>
+                <DiagramType>flowchart</DiagramType>
+                <DiagramType>sequenceDiagram</DiagramType>
+                <DiagramType>classDiagram</DiagramType>
+                <DiagramType>stateDiagram</DiagramType>
+                <DiagramType>erDiagram</DiagramType>
+                <DiagramType>gantt</DiagramType>
+                <DiagramType>userJourney</DiagramType>
+                <DiagramType>gitGraph</DiagramType>
+                <DiagramType>quadrantChart</DiagramType>
+                <DiagramType>req</DiagramType>
+                <DiagramType>mindmap</DiagramType>
+                <DiagramType>timeline</DiagramType>
+                <DiagramType>pie</DiagramType>
+                <DiagramType>sankey</DiagramType>
+                <DiagramType>xyChart</DiagramType>
+                <DiagramType>blockDiagram</DiagramType>
+                <DiagramType>kanban</DiagramType>
+                <DiagramType>architecture</DiagramType>
+                <DiagramType>radar</DiagramType>
+                <DiagramType>treemap</DiagramType>
+                <DiagramType>packet</DiagramType>
+              </SupportedDiagramTypes>
+              <Configuration>
+                <Frontmatter>
+                  Use YAML frontmatter between <code>---</code> lines on top for title, theme, look, or layout configuration.
+                  Example:
+                  <![CDATA[
+            ---
+            title: Example Diagram
+            config:
+              theme: forest
+              look: handDrawn
+              layout: elk
+            ---
+            flowchart LR
+              A[Start] --> B{Decision}
+              B -->|Yes| C[Continue]
+              B -->|No| D[Stop]
+                  ]]>
+                </Frontmatter>
+                <Themes>Supported: default, forest, neutral, dark</Themes>
+                <Looks>Supported: classic, handDrawn</Looks>
+                <Layouts>dagre (default), elk (advanced, see docs for options)</Layouts>
+              </Configuration>
+              <SyntaxReminders>
+                <Reminder>Use <code>%%</code> for comments. Do not use curly braces inside comments.</Reminder>
+                <Reminder>Common breaking words like "end" must be quoted.</Reminder>
+                <Reminder>Do not nest nodes inside other nodes; use quotes if needed for node names.</Reminder>
+                <Reminder>Avoid advanced directives unless required.</Reminder>
+                <Reminder>Keep code clean, minimal, well-structured, and valid as per the latest Mermaid docs.</Reminder>
+              </SyntaxReminders>
+            </SystemPrompt>
+`,
+            prompt: ` ${query} `,
           });
-        }
-      }
-
-
-      const model = withTracing(groqClient("openai/gpt-oss-120b"), phClient, {
-        posthogDistinctId: userId.subject,
-        posthogTraceId: randomUUID(),
-        posthogProperties: { "conversation_id": args.chatId, },
-        posthogPrivacyMode: false,
+          return JSON.stringify(result.object);
+        },
       });
+
+
+
+      const Knowledgebase = tool({
+        description: "it is used to genrate the Mermaind diagrams",
+        inputSchema: z.object({
+          query: z.string().min(2).describe("Programming topic to get code for"),
+        }),
+        execute: async ({ query }) => {
+          console.log(`🔍 TOOL CALL - getCodeTools: ${query}`);
+
+          const embeddings = await getEmbedding(
+            allMessages.map((msg) => msg.content).join(" "),
+          );
+
+
+          const index = pinecone.index("bda");
+          const Semantic_search = await index.namespace("__default__").query({
+            vector: embeddings,
+            topK: 10,
+            includeMetadata: true,
+            includeValues: false,
+          });
+
+
+          const textContent = Semantic_search.matches
+            .map((match) => match.metadata?.text)
+            .filter(Boolean);
+          console.log("the textcontent is : ", textContent);
+          const resultsString = textContent.join("\n\n");
+          console.log("############################################");
+          console.log("the resultsString is : ", resultsString);
+          console.log("############################################");
+
+          return resultsString;
+
+        },
+      });
+
+
+
+
+      // Only search knowledge base if explicitly requested
+      // if (args.useKnowledgeBase) {
+      //   const embeddings = await getEmbedding(
+      //     allMessages.map((msg) => msg.content).join(" "),
+      //   );
+
+      //   const index = pinecone.index("bda");
+      //   const Semantic_search = await index.namespace("__default__").query({
+      //     vector: embeddings,
+      //     topK: 10,
+      //     includeMetadata: true,
+      //     includeValues: false,
+      //   });
+
+      //   const textContent = Semantic_search.matches
+      //     .map((match) => match.metadata?.text)
+      //     .filter(Boolean);
+      //   console.log("the textcontent is : ", textContent);
+      //   const resultsString = textContent.join("\n\n");
+      //   console.log("############################################");
+      //   console.log("the resultsString is : ", resultsString);
+      //   console.log("############################################");
+      //   // Add the retrieved context as a system message
+      //   if (resultsString) {
+      //     allMessages.unshift({
+      //       role: "assistant",
+      //       content: `Relevant context from knowledge base:\n\n${resultsString} when using this make sure that you also specify the sources at the end of the respose`,
+      //     });
+      //   }
+      // }
+
+
+
+const model = withTracing(groqClient("openai/gpt-oss-120b"), phClient, {
+  posthogDistinctId: userId.subject,
+  posthogTraceId: randomUUID(),
+  posthogProperties: { "conversation_id": args.chatId, },
+  posthogPrivacyMode: false,
+});
 
 
       const response =  streamText({
         model: model,
         messages: allMessages,
-        // providerOptions: {
-        //     groq: {
-        //       reasoningFormat: 'parsed',
-        //       reasoningEffort: 'high',
-        //       parallelToolCalls: true, // Enable parallel function calling (default: true)
-        //       user: userId.subject, // Unique identifier for end-user (optional)
-        //     },
-        //   },
+        tools: {
+          Mermaid,
+        },
+        providerOptions: {
+            groq: {
+              reasoningFormat: 'parsed',
+              reasoningEffort: 'low',
+              parallelToolCalls: true, // Enable parallel function calling (default: true)
+              user: userId.subject, // Unique identifier for end-user (optional)
+            },
+          },
 
-        system: `You are SphereAI, a friendly study assistant focused on exam readiness. Use provided knowledge base/context as the primary source. Keep everything simple first; use technical terms only when essential and define them in one short line. Most of the users are from global south like countries from India,Africa so try to maintain simple english For every answer:
+        system: `<SphereAIInstructions>
+            <Purpose><![CDATA[
+        You are SphereAI built by "HARSHITH", a friendly study assistant focused on exam readiness. Use provided knowledge base/context as the primary source. Keep everything simple first; use technical terms only when essential and define them in one short line. Most of the users are from global south like countries from India, Africa so try to maintain simple English.
+        ]]></Purpose>
 
-        Start with a short, plain-language explanation (2–3 sentences).
-
-        Give 3–6 key points or steps in short bullets.
 
 
-        Include one tiny example or analogy.
+            <MathRules>
+                <Rule>❌ NEVER use brackets like "[formula]" for math.</Rule>
+                <Rule>❌ NEVER use parentheses like "(formula)" for math.</Rule>
+                <Rule>❌ NEVER use plain text for mathematical expressions.</Rule>
+                <DisplayMath>Use $$...$$ for complex equations, multi‑line formulas, and important standalone expressions.</DisplayMath>
+                <InlineMath>Use $...$ for variables, simple expressions, and mathematical terms within sentences.</InlineMath>
+            </MathRules>
 
-        Add “Need-to-know terms” with one-line definitions only if required.
+            <Tools>
+            You have access to the following tools :
+            -> Mermaid
+            -> Knowledgebase
 
-        End with “Exam must-knows” (3–5 bullets)
-        If context is provided, say “Based on class notes/KB:” and build the response from it. If context is missing or conflicting, state it briefly, prefer course materials, and proceed with the simplest correct explanation. Keep sentences short. Avoid jargon unless exam-required.
+            <Description>
+            use the mermaid tool to create the diagram to visualize the process to help understand the problem and find a solution
+            use the knowledgebase to find relevant information and resources
+            </Description>
+            </Tools>
 
-        CRITICAL MATH RULES:
-        ❌ NEVER use brackets like "[formula]" for math.
-
-        ❌ NEVER use parentheses like "(formula)" for math.
-
-        ❌ NEVER use plain text for mathematical expressions.
-
-        ### When to Use Each:
-           - **Display math** "$$...$$": Complex equations, multi-line formulas, important standalone expressions and for all the math expressions
-           - **Inline math** "$...$": Variables, simple expressions, mathematical terms within sentences
-
-        Follow these delimiters and diagram rules exactly to ensure proper rendering
-
-        MermaidDIAGRAM RULES
-        Use Mermaid diagrams whenever a diagram, chart, or visual or UML,Design-pattern explanation is appropriate or directly requested.
-
-        Always use proper Mermaid syntax for all diagrams, starting with the diagram type (e.g., flowchart, sequenceDiagram, classDiagram, etc).
-
-        Place all Mermaid code within triple backtick code blocks and specify MERMAID as the language.
-
-        Never include Markdown formatting or code block markers within the diagram code itself.
-
-        Avoid broken diagrams: Ensure there are no misspelled keywords/types; unknown words, bad YAML frontmatter, or malformed syntax will break Mermaid rendering. Double-check for valid structure.
-
-        For all diagram types, do not use reserved keywords or symbols in ways that break diagrams (e.g. words like end in flowcharts/sequence diagrams should be wrapped in quotation marks if needed).
-
-        Do not nest nodes inside nodes unless documentation confirms it is valid for that diagram type. If you need to, wrap them in quotation marks.
-
-        Comments in Mermaid: Only use %% for comments. Don’t use curly braces ({}) inside %% comments, as it causes breakage.
-
-        Always ensure directed/undirected graph arrows, edge/label syntax, class/entity/relationship syntax adhere to Mermaid documentation for the chosen diagram type.
-
-        For text/label nodes in diagrams, wrap text in square or round brackets when necessary (according to Mermaid syntax) to avoid mis-parsing.
-
-        For all Mermaid diagrams, ensure that special characters or words are escaped or wrapped as needed per documentation.
-
-        Never output broken or partial Mermaid code. If the diagram cannot be completed, give an explanatory message, not partial syntax.
+            <Mermaid>
+                <Rule>Use Mermaid diagrams whenever a diagram, chart, visual, UML, or design‑pattern explanation is appropriate or directly requested.</Rule>
+                <Rule>Start each diagram with the diagram type (flowchart, sequenceDiagram, classDiagram, etc).</Rule>
+                <Rule>Place all Mermaid code inside triple backticks with the language label MERMAID.</Rule>
+                <Rule>Do NOT include Markdown formatting or code‑block markers inside the diagram code itself.</Rule>
+                <Rule>Ensure no misspelled keywords, unknown words, bad YAML front‑matter, or malformed syntax.</Rule>
+                <Rule>Wrap reserved words (e.g., “end”) in quotes if needed.</Rule>
+                <Rule>Do NOT nest nodes inside nodes unless the diagram type permits it; otherwise, wrap in quotes.</Rule>
+                <Rule>Comments: use only %% and avoid curly braces inside comments.</Rule>
+                <Rule>Use correct arrow, edge, and label syntax per Mermaid documentation.</Rule>
+                <Rule>Wrap text/label nodes in brackets when required by Mermaid syntax.</Rule>
+                <Rule>Escape or wrap special characters/words as needed.</Rule>
+                <Rule>If a diagram cannot be completed, give an explanatory message instead of partial code.</Rule>
+            </Mermaid>
+        </SphereAIInstructions>
 
 `,
 

@@ -52,10 +52,6 @@ const nextConfig: NextConfig = {
   },
 
 
-  experimental: {
-      instrumentationHook: true,
-
-  } ,
   // This is required to support PostHog trailing slash API requests
   skipTrailingSlashRedirect: true,
 } as InstrumentEnabled;

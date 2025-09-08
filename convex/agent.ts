@@ -3,13 +3,13 @@ import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { api } from "./_generated/api";
 import { AgentOutputSchema } from "../src/app/SlidesSchema";
-import { generateObject, tool,  streamText } from "ai";
+import { generateObject, tool,  streamText , generateText } from "ai";
 import { z } from "zod";
 import { createGoogleGenerativeAI} from '@ai-sdk/google';
-import crypto from 'node:crypto';
 import { randomUUID } from 'crypto';
 import { withTracing } from "@posthog/ai"
 import { PostHog } from 'posthog-node';
+import { createMermaidMcp } from '../src/mcp/mermaid';
 
 import Exa from "exa-js";
 
@@ -102,6 +102,14 @@ export const agent = action({
       explanation: z.string().describe("Explanation of the code"),
     });
 
+
+    const MermaidSchema = z.object({
+      code: z
+        .string()
+        .min(10)
+        .describe("The actual code in the mermaid specifed syntax"),
+    });
+
     const GetSyllabusSchema = z.object({
       query: z
         .string()
@@ -174,6 +182,8 @@ export const agent = action({
           }
         });
 
+
+
         const result = await generateObject({
           model: tracedModel('gemini-2.5-flash', { tool_name: 'getSyllabusTools', tool_query: query }),
           schema: GetSyllabusSchema,
@@ -198,6 +208,179 @@ export const agent = action({
         console.log(`✅ TOOL RESULT - getSyllabusTools completed for: ${query}`);
 
         return JSON.stringify(result.object);
+      },
+    });
+
+    // Mermaid tool using MCP client
+    //
+    const mcp = await createMermaidMcp();
+    const tools = await mcp.tools();
+
+
+    const MermaidTool = tool({
+      description: "Mermaid diagram generation tool",
+      inputSchema: z.object({
+        query: z.string().min(2).describe("Clearly describe about the diagram you want to create, the intent and the purpose of the diagram, and the required information to create the diagram , always try to be more specific so that we can get the better result"),
+      }),
+      execute: async ({ query }) => {
+        console.log(`🔍 TOOL CALL - MermaidTool: ${query}`);
+
+        // Track tool call start
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_tool_call_started',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            tool_name: 'MermaidTool',
+            tool_input: { query },
+            course_id: args.courseId,
+            pipeline_stage: 'agent_processing'
+          }
+        });
+
+        const result = await generateText({
+          model: tracedModel('gemini-2.5-flash', { tool_name: 'MermaidTool', tool_query: query }),
+          tools:tools,
+          system: `
+          <SystemInstruction>
+            <Role>
+              You are a diagram-and-chart generation agent.
+            </Role>
+
+
+            <OperatingPrinciple>
+              The ONLY way to generate any Mermaid diagram is to call the matching specialized tool for that graph.
+              <ExplicitToolUsage>
+                For every diagram type, use only its associated tool. Do NOT generate Mermaid code directly; tool calls are mandatory for all chart types.
+              </ExplicitToolUsage>
+            </OperatingPrinciple>
+
+
+            <Capabilities>
+              <ProduceMermaid>
+                Produce valid Mermaid syntax by invoking the correct tool for the required diagram type.
+              </ProduceMermaid>
+              <ToolMandatory>
+                Each chart/diagram type has a dedicated tool. Always use the tool; never create Mermaid syntax directly or as fallback.
+              </ToolMandatory>
+            </Capabilities>
+
+            <Objectives>
+              <Intent>
+                Always infer the user's intended visualization type and required data.
+              </Intent>
+              <Truthfulness>
+                Create the clearest, minimal, and truthful diagram by invoking the correct tool, the create diagram will be showed on the dark background so keep the accesability in check.
+              </Truthfulness>
+            </Objectives>
+
+            <DataPolicy>
+              <SampleData>
+                If required data or components are missing, synthesize reasonable sample data . Then proceed to call the correct tool.
+              </SampleData>
+              <NoHandwrittenMermaid>
+                Never emit Mermaid code except as returned by a tool.
+              </NoHandwrittenMermaid>
+            </DataPolicy>
+
+
+            <Toolbox>
+              <Tool name="generate_area_chart" when="Continuous trends or cumulative magnitude (area chart)." />
+              <Tool name="generate_bar_chart" when="Categorical comparisons, horizontal layout." />
+              <Tool name="generate_boxplot_chart" when="Distribution summaries across groups (boxplot)." />
+              <Tool name="generate_column_chart" when="Vertical categorical comparison (column chart)." />
+              <Tool name="generate_district_map" when="Choropleth or region-based map (district map)." />
+              <Tool name="generate_dual_axes_chart" when="Two related series with dual axes." />
+              <Tool name="generate_fishbone_diagram" when="Root cause (Ishikawa) analysis (fishbone diagram)." />
+              <Tool name="generate_flow_diagram" when="Processes, logic, or workflow (flowchart)." />
+              <Tool name="generate_funnel_chart" when="Stage-by-stage dropoff (funnel chart)." />
+              <Tool name="generate_histogram_chart" when="Distribution by bins (histogram)." />
+              <Tool name="generate_line_chart" when="Trends over time/continuous (line chart)." />
+              <Tool name="generate_liquid_chart" when="Single KPI/metric with fill gauge (liquid chart)." />
+              <Tool name="generate_mind_map" when="Hierarchical/radial ideas (mind map)." />
+              <Tool name="generate_network_graph" when="Relationships/connections (network graph)." />
+              <Tool name="generate_organization_chart" when="Org structure/hierarchies (org chart)." />
+              <Tool name="generate_path_map" when="Route/path on a map (path map)." />
+              <Tool name="generate_pie_chart" when="Part-to-whole, few slices (pie chart)." />
+              <Tool name="generate_pin_map" when="POI markers on a map (pin map)." />
+              <Tool name="generate_radar_chart" when="Multi-metric comparison (radar chart)." />
+              <Tool name="generate_sankey_chart" when="Flows with magnitude (sankey chart)." />
+              <Tool name="generate_scatter_chart" when="Relationship between numeric variables (scatter plot)." />
+              <Tool name="generate_treemap_chart" when="Hierarchical part-to-whole (treemap)." />
+              <Tool name="generate_venn_chart" when="Set intersections (venn diagram)." />
+              <Tool name="generate_violin_chart" when="Distribution + density (violin plot)." />
+              <Tool name="generate_word_cloud_chart" when="Word frequency emphasis (word cloud)." />
+            </Toolbox>
+
+
+            <SelectionHeuristics>
+              <ChartSelection>
+                Always select the single correct tool for the user’s intent. One chart/diagram = one tool call.
+              </ChartSelection>
+            </SelectionHeuristics>
+
+
+            <OutputPolicy>
+
+
+              <MermaidViaToolOnly>
+                Never hand-type or return Mermaid without a tool. The tool’s result is the only legal output.
+              </MermaidViaToolOnly>
+
+              <OneToolOneChart>
+                Never combine tool calls or cherry-pick chart code. Each invocation = one diagram.
+              </OneToolOneChart>
+
+            </OutputPolicy>
+
+
+            <QuickExamples>
+              <Example name="Process flow">Call <ToolRef name="generate_flow_diagram" /> and return ONLY its Mermaid output.</Example>
+              <Example name="Sales funnel">Call <ToolRef name="generate_funnel_chart" /> with the sales stages and counts.</Example>
+              <Example name="Team org chart">Call <ToolRef name="generate_organization_chart" /> with the hierarchy data.</Example>
+              <Example name="Product comparisons">Call <ToolRef name="generate_bar_chart" /> with category labels and values.</Example>
+            </QuickExamples>
+
+
+            <DoNots>
+              <NoManualMermaid>Never write Mermaid by hand, never return it unless from a tool.</NoManualMermaid>
+              <NoMultiTool>Never use more than one tool per chart.</NoMultiTool>
+              <NoFallback>No tool ever acts as a backup; each is required for its chart type.</NoFallback>
+            </DoNots>
+          </SystemInstruction>
+
+`,
+          prompt: ` ${query}`,
+
+          providerOptions: {
+            google: {
+              thinkingConfig: {
+                thinkingBudget: -1,
+                includeThoughts: false,
+              },
+            },
+          },
+        });
+
+        // Track tool call completion
+        phClient.capture({
+          distinctId: userId.subject,
+          event: 'agent_tool_call_completed',
+          properties: {
+            trace_id: traceId,
+            run_id: runId,
+            tool_name: 'getSyllabusTools',
+            tool_input: { query },
+            tool_output_size: JSON.stringify(result.text).length,
+            course_id: args.courseId,
+            pipeline_stage: 'agent_processing'
+          }
+        });
+
+        console.log(`✅ TOOL RESULT - getSyllabusTools completed for: ${query}`);
+
+        return JSON.stringify(result.text);
       },
     });
 
@@ -632,81 +815,128 @@ export const agent = action({
             stream_processing: true
           }),
 // Allow multiple steps for tool usage and final generation
-        system: `You are SphereAI, an advanced educational agent. Your mission is to produce a comprehensive, multi-slide learning module for any topic a student asks about.
+        system: `<SystemInstruction>
+          <Agent>
+            <Name>SphereAI</Name>
+            <Purpose>
+              You are an advanced educational agent designed to generate comprehensive, multi-slide learning modules for any student-requested topic.
+            </Purpose>
+            <language>
+             try to keep the language simple and clear, avoiding jargon and complex terms. Use plain English and avoid technical jargon., most of the user are from global south and english is not their first languge, so use simple english that is easy to understand and avoid using idioms and colloquialisms.
+            </language>
+          </Agent>
 
-        CRITICAL: You MUST follow this exact workflow:
+          <Workflow>
 
-        PHASE 1 - INFORMATION GATHERING (Steps 1-10):
-        Use your available tools strategically (don't use all tools at once):
-        1. Use "getSyllabusTools" to get a detailed syllabus
-        2. Use "webSearchTools" for 1-2 targeted searches (not exhaustive)
-        3. Use "getCodeTools" if the topic involves programming
-        4. Use "svgTool" for 1-2 key visual diagrams
-        5. Use "flashcardsTools" for core concepts (max 3 flashcards)
-        6. Use "testTools" for assessment questions (max 5 questions)
 
-        PHASE 2 - SYNTHESIS AND RESPONSE (Steps 11-15):
-        After gathering tool results, you MUST:
-        1. Analyze all the tool results you received
-        2. Synthesize the information into a coherent learning experience
-        3. Generate a comprehensive text response explaining the learning module
-        4. Format everything into the required JSON structure
+            <Phase1 name="Information Gathering">
+              <Note>Use your tools intentionally and do NOT call all tools at once—select tools based on topic needs.</Note>
+              <Step number="1" tool="getSyllabusTools">
+                Obtain a detailed syllabus for the target subject.
+              </Step>
+              <Step number="2" tool="webSearchTools">
+                Perform 1-2 targeted web searches relevant to the topic; avoid exhaustive search.
+              </Step>
+              <Step number="3" tool="getCodeTools">
+                Retrieve code examples if the topic involves programming.
+              </Step>
+              <Step number="4" tool="svgTool">
+                Generate 1-2 SVG diagrams to visually represent key concepts or processes.
+              </Step>
+              <Step number="5" tool="flashcardsTools">
+                Extract up to 3 core flashcards summarizing essential concepts.
+              </Step>
+              <Step number="6" tool="testTools">
+                Create up to 5 assessment questions for self-evaluation.
+              </Step>
+              <Step number="7" tool="MermaidTool">
+                Generate diagrams in Mermaid syntax for supported chart types or structures.
+              </Step>
+            </Phase1>
 
-        MANDATORY: Your final response must contain BOTH explanatory text AND a valid JSON object that matches this structure:
-          {
-            "slides": [
-              {
-                "name": "slide 1",
-                "title": "Main title of the slide",
-                "subTitles": "Brief subtitle or summary",
-                "svg": "<svg>...</svg>",
-                "content": "Main explanation in markdown (max 180 words)",
-                "links": ["https://example.com/resource1", "https://example.com/resource2"],
-                "youtubeSearchText": "Search query for YouTube exploration",
-                "code": {
-                  "language": "javascript",
-                  "content": "console.log('Hello World');"
-                },
-                "tables": "Optional table in markdown format",
-                "bulletPoints": ["Key point 1", "Key point 2"],
-                "flashcardData": [
-                  {
-                    "question": "What is X?",
-                    "answer": "X is..."
-                  }
-                ],
-                "testQuestions": [
-                  {
-                    "question": "What is the correct answer?",
-                    "options": ["A", "B", "C", "D"],
-                    "answer": "A"
-                  }
-                ],
-                "type": "markdown"
-              }
-            ]
-          }
 
-          IMPORTANT: You must use the results from your tool calls to populate the fields:
-          - Use SVG diagrams from svgTool results for the "svg" field
-          - Use flashcard data from flashcardsTools results for the "flashcardData" field
-          - Use test questions from testTools results for the "testQuestions" field
-          - Use code examples from getCodeTools results for the "code" field
-          - Generate SVG diagrams that are relevant to the topic and enhance understanding
-          - You don't need to show SVG diagrams for test slides, flashcard slides, table slides, or code slides
-          - Focus on creating SVG diagrams that visually represent concepts, processes, or structures
-          - always make sure that you render the test and flash card in the new slide, so that we can provide better learning experience
-          - always remember to keep the user experience high so structure the content in a way that is easy to understand and follow
-          - When creating test questions, always create a dedicated slide with type "test" for the test questions
-          - When creating flashcards, always create a dedicated slide with type "flashcard" for the flashcards
-          - Structure the content so that test questions and flashcards are on separate slides from the main content
+            <Phase2 name="Synthesis and Response">
+              <Step number="8">
+                Analyze all results gathered from the tools.
+              </Step>
+              <Step number="9">
+                Synthesize a coherent, well-structured learning experience integrating all content types.
+              </Step>
+              <Step number="10">
+                Generate a comprehensive, easy-to-understand text explanation for the module.
+              </Step>
+              <Step number="11">
+                Aggregate all results into the required JSON structure.
+              </Step>
+            </Phase2>
 
-          FINAL REQUIREMENT: You MUST NOT end with just tool calls. After using tools, you MUST generate a final comprehensive text response that:
-          1. Summarizes what you learned from the tools
-          2. Explains the learning module structure
-          3. Presents a complete JSON object with all gathered information
 
-          If you finish without generating final text, you have FAILED your mission.`,
+          </Workflow>
+
+          <MandatoryJSONStructure>
+            <![CDATA[
+            {
+              "slides": [
+                {
+                  "name": "slide 1",
+                  "title": "Main title of the slide",
+                  "subTitles": "Brief subtitle or summary",
+                  "svg": "<svg>...</svg>",
+                  "content": "Main explanation in markdown (max 180 words)",
+                  "links": ["https://example.com/resource1", "https://example.com/resource2"],
+                  "youtubeSearchText": "Search query for YouTube exploration",
+                  "code": {
+                    "language": "javascript",
+                    "content": "console.log('Hello World');"
+                  },
+                  "tables": "Optional table in markdown format",
+                  "bulletPoints": ["Key point 1", "Key point 2"],
+                  "flashcardData": [
+                    {"question": "What is X?", "answer": "X is..."}
+                  ],
+                  "testQuestions": [
+                    {"question": "What is the correct answer?", "options": ["A", "B", "C", "D"], "answer": "A"}
+                  ],
+                  "type": "markdown"
+                }
+              ]
+            }
+            ]]>
+            <FieldNotes>
+              <SVG>Populate from svgTool results; include only for main content slides, not code, test, or flashcard slides.</SVG>
+              <Flashcards>Place each flashcard in a separate slide with type "flashcard".</Flashcards>
+              <Tests>Place each test question in a dedicated slide with type "test".</Tests>
+              <Code>Include example code from getCodeTools only if the topic is programming-related.</Code>
+              <Mermaid>Use MermaidTool for supported diagrams and charts; embed as appropriate.</Mermaid>
+            </FieldNotes>
+          </MandatoryJSONStructure>
+
+          <ContentGuidelines>
+            <LearningExperience>
+              Always ensure a clear structure with explanatory text, followed by complete JSON output.
+            </LearningExperience>
+            <Separation>
+              Test questions and flashcards must be presented on their own dedicated slides, not mixed with main content.
+            </Separation>
+            <SVGUsage>
+              Create diagrams that add conceptual clarity; avoid including SVG on slides for assessments, flashcards, tables, or code.
+            </SVGUsage>
+            <UserExperience>
+              Organize content for maximum clarity and ease-of-use; ensure logical flow and scaffolding for learning, always keep the language simple don't use any technical jargon or complex terminology , most of the users are from the global south like africa and asia , where english is not their first language , so use simple and clear language.
+            </UserExperience>
+            <Finalization>
+              <Rule>
+                After gathering all tool outputs, always:
+                <List>
+                  <Item>Summarize your key findings and insights in a comprehensive explanatory text.</Item>
+                  <Item>Present the generated learning module JSON, fully populated with all tool results and structures.</Item>
+                </List>
+                <Failure>If you do not return both text summary and JSON, you have FAILED your mission.</Failure>
+              </Rule>
+            </Finalization>
+          </ContentGuidelines>
+        </SystemInstruction>
+`,
           prompt: stagePrompt,
           tools: {
             getSyllabusTools,
@@ -716,6 +946,7 @@ export const agent = action({
             testTools,
             flashcardsTools,
             svgTool,
+            MermaidTool
           },
           onChunk({ chunk }) {
             console.log(`🔄 STREAM CHUNK - Stage ${stageIndex + 1}: ${chunk.type} (trace_id: ${traceId})`);

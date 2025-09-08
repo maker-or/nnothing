@@ -9,7 +9,6 @@ import { action } from './_generated/server';
 import { Langfuse } from "langfuse";
 import crypto from 'node:crypto';
 import { createGroq } from '@ai-sdk/groq';
-import { randomUUID } from 'crypto';
 import { withTracing } from "@posthog/ai"
 import { PostHog } from 'posthog-node';
 
@@ -143,7 +142,7 @@ Requirements:
 5. Ensure discussion prompts encourage critical thinking
 
 IMPORTANT: You must respond with valid JSON that exactly matches the required schema. Do not include any explanatory text outside the JSON structure.`,
-        prompt: `Create a structured learning course for: ${args.messages}
+        prompt: ` ${args.messages}
 
 Please design a course with multiple stages that will help someone learn this topic effectively. Each stage should build upon the previous one and include practical learning activities.`,
         schema: CourseSchema,

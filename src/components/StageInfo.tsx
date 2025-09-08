@@ -565,214 +565,214 @@ const ContentBlock: React.FC<{
   };
 
   // Enhanced markdown components
-  const markdownComponents: Components = {
-    code(props) {
-      const anyProps = props as any;
-      const { node, className, children } = anyProps;
-      const { inline: _inline, ...rest } = anyProps;
-      const raw = sanitizeContent(children).replace(/\n$/, "");
+  // const markdownComponents: Components = {
+  //   code(props) {
+  //     const anyProps = props as any;
+  //     const { node, className, children } = anyProps;
+  //     const { inline: _inline, ...rest } = anyProps;
+  //     const raw = sanitizeContent(children).replace(/\n$/, "");
 
-      const isInline =
-        anyProps?.inline ??
-        (!className &&
-          (node as any)?.tagName === "code" &&
-          (node as any)?.parent?.tagName !== "pre" &&
-          !raw.includes("\n"));
+  //     const isInline =
+  //       anyProps?.inline ??
+  //       (!className &&
+  //         (node as any)?.tagName === "code" &&
+  //         (node as any)?.parent?.tagName !== "pre" &&
+  //         !raw.includes("\n"));
 
-      if (isInline) {
-        return (
-          <code
-            className="not-prose rounded bg-white/10 px-1 py-0.5 font-mono text-xs text-white/90"
-            {...rest}
-          >
-            {raw}
-          </code>
-        );
-      }
+  //     if (isInline) {
+  //       return (
+  //         <code
+  //           className="not-prose rounded bg-white/10 px-1 py-0.5 font-mono text-xs text-white/90"
+  //           {...rest}
+  //         >
+  //           {raw}
+  //         </code>
+  //       );
+  //     }
 
-      const hinted =
-        (node as any)?.lang ||
-        /language-([\w-]+)/.exec(className || "")?.[1];
-      const language = (hinted || slide.code?.language || "text").trim();
+  //     const hinted =
+  //       (node as any)?.lang ||
+  //       /language-([\w-]+)/.exec(className || "")?.[1];
+  //     const language = (hinted || slide.code?.language || "text").trim();
 
-      return (
-        <div className="not-prose">
-          <CodeBlock code={raw} language={language}>
-            <CodeBlockCopyButton />
-          </CodeBlock>
-        </div>
-      );
-    },
+  //     return (
+  //       <div className="not-prose">
+  //         <CodeBlock code={raw} language={language}>
+  //           <CodeBlockCopyButton />
+  //         </CodeBlock>
+  //       </div>
+  //     );
+  //   },
 
-    pre({ children }) {
-      return <div className="my-4 not-prose">{children}</div>;
-    },
+  //   pre({ children }) {
+  //     return <div className="my-4 not-prose">{children}</div>;
+  //   },
 
-    table({ children }) {
-      return (
-        <div className="my-6 overflow-x-auto rounded-lg border border-gray-700 shadow-lg">
-          <table className="min-w-full table-auto bg-theme-bg-secondary">
-            {children}
-          </table>
-        </div>
-      );
-    },
+  //   table({ children }) {
+  //     return (
+  //       <div className="my-6 overflow-x-auto rounded-lg border border-gray-700 shadow-lg">
+  //         <table className="min-w-full table-auto bg-theme-bg-secondary">
+  //           {children}
+  //         </table>
+  //       </div>
+  //     );
+  //   },
 
-    thead({ children }) {
-      return <thead className="bg-[#FD833C]">{children}</thead>;
-    },
+  //   thead({ children }) {
+  //     return <thead className="bg-[#FD833C]">{children}</thead>;
+  //   },
 
-    tbody({ children }) {
-      return <tbody className="divide-y divide-gray-700">{children}</tbody>;
-    },
+  //   tbody({ children }) {
+  //     return <tbody className="divide-y divide-gray-700">{children}</tbody>;
+  //   },
 
-    th({ children }) {
-      const content = sanitizeContent(children);
-      return (
-        <th className="border-gray-600 border-r px-6 py-3 text-left font-bold text-gray-100 text-xs uppercase tracking-wider last:border-r-0">
-          {content}
-        </th>
-      );
-    },
+  //   th({ children }) {
+  //     const content = sanitizeContent(children);
+  //     return (
+  //       <th className="border-gray-600 border-r px-6 py-3 text-left font-bold text-gray-100 text-xs uppercase tracking-wider last:border-r-0">
+  //         {content}
+  //       </th>
+  //     );
+  //   },
 
-    td({ children }) {
-      const content = sanitizeContent(children);
-      return (
-        <td className="border-gray-700/50 border-r px-6 py-4 text-sm text-white last:border-r-0">
-          {content}
-        </td>
-      );
-    },
+  //   td({ children }) {
+  //     const content = sanitizeContent(children);
+  //     return (
+  //       <td className="border-gray-700/50 border-r px-6 py-4 text-sm text-white last:border-r-0">
+  //         {content}
+  //       </td>
+  //     );
+  //   },
 
-    tr({ children }) {
-      return (
-        <tr className="border-gray-700/50 border-b transition-colors duration-200 last:border-b-0 hover:bg-black/40">
-          {children}
-        </tr>
-      );
-    },
+  //   tr({ children }) {
+  //     return (
+  //       <tr className="border-gray-700/50 border-b transition-colors duration-200 last:border-b-0 hover:bg-black/40">
+  //         {children}
+  //       </tr>
+  //     );
+  //   },
 
-    img({ src, alt }) {
-      if (!src || typeof src !== "string") return null;
-      return (
-        <div className="my-4 text-center">
-          <img
-            alt={alt || ""}
-            className="mx-auto h-auto max-w-full rounded-lg shadow-lg"
-            height={600}
-            onError={(e) => {
-              const target = e.target as HTMLImageElement;
-              target.style.display = "none";
-              const placeholder = document.createElement("div");
-              placeholder.className =
-                "bg-gray-800 text-gray-400 p-4 rounded-lg text-center";
-              placeholder.textContent = alt || "Image could not be loaded";
-              target.parentNode?.replaceChild(placeholder, target);
-            }}
-            src={src}
-            width={800}
-          />
-        </div>
-      );
-    },
+  //   img({ src, alt }) {
+  //     if (!src || typeof src !== "string") return null;
+  //     return (
+  //       <div className="my-4 text-center">
+  //         <img
+  //           alt={alt || ""}
+  //           className="mx-auto h-auto max-w-full rounded-lg shadow-lg"
+  //           height={600}
+  //           onError={(e) => {
+  //             const target = e.target as HTMLImageElement;
+  //             target.style.display = "none";
+  //             const placeholder = document.createElement("div");
+  //             placeholder.className =
+  //               "bg-gray-800 text-gray-400 p-4 rounded-lg text-center";
+  //             placeholder.textContent = alt || "Image could not be loaded";
+  //             target.parentNode?.replaceChild(placeholder, target);
+  //           }}
+  //           src={src}
+  //           width={800}
+  //         />
+  //       </div>
+  //     );
+  //   },
 
-    a({ href, children }) {
-      if (!href) return <span>{sanitizeContent(children)}</span>;
+  //   a({ href, children }) {
+  //     if (!href) return <span>{sanitizeContent(children)}</span>;
 
-      const isExternal = href.startsWith("http") || href.startsWith("//");
-      const isVideo =
-        href.includes("youtube.com") ||
-        href.includes("youtu.be") ||
-        href.includes("vimeo.com");
+  //     const isExternal = href.startsWith("http") || href.startsWith("//");
+  //     const isVideo =
+  //       href.includes("youtube.com") ||
+  //       href.includes("youtu.be") ||
+  //       href.includes("vimeo.com");
 
-      const content = sanitizeContent(children);
+  //     const content = sanitizeContent(children);
 
-      return (
-        <a
-          className={`inline-flex items-center gap-1 text-blue-400 underline transition-colors hover:text-blue-300 ${
-            isVideo ? "font-medium" : ""
-          }`}
-          href={href}
-          rel={isExternal ? "noopener noreferrer" : undefined}
-          target={isExternal ? "_blank" : undefined}
-        >
-          {isVideo && <LinkIcon className="h-3 w-3" />}
-          {content}
-        </a>
-      );
-    },
+  //     return (
+  //       <a
+  //         className={`inline-flex items-center gap-1 text-blue-400 underline transition-colors hover:text-blue-300 ${
+  //           isVideo ? "font-medium" : ""
+  //         }`}
+  //         href={href}
+  //         rel={isExternal ? "noopener noreferrer" : undefined}
+  //         target={isExternal ? "_blank" : undefined}
+  //       >
+  //         {isVideo && <LinkIcon className="h-3 w-3" />}
+  //         {content}
+  //       </a>
+  //     );
+  //   },
 
-    blockquote({ children }) {
-      const content = sanitizeContent(children);
-      return (
-        <blockquote className="my-4 border-blue-400 border-l-4 pl-4 text-white/80 italic">
-          {content}
-        </blockquote>
-      );
-    },
+  //   blockquote({ children }) {
+  //     const content = sanitizeContent(children);
+  //     return (
+  //       <blockquote className="my-4 border-blue-400 border-l-4 pl-4 text-white/80 italic">
+  //         {content}
+  //       </blockquote>
+  //     );
+  //   },
 
-    ul({ children }) {
-      return (
-        <ul className="my-4 list-inside list-disc space-y-5 text-white leading-relaxed tracking-tight">
-          {children}
-        </ul>
-      );
-    },
+  //   ul({ children }) {
+  //     return (
+  //       <ul className="my-4 list-inside list-disc space-y-5 text-white leading-relaxed tracking-tight">
+  //         {children}
+  //       </ul>
+  //     );
+  //   },
 
-    ol({ children }) {
-      return (
-        <ol className="my-4 list-inside list-decimal space-y-5 text-white leading-relaxed tracking-tight">
-          {children}
-        </ol>
-      );
-    },
+  //   ol({ children }) {
+  //     return (
+  //       <ol className="my-4 list-inside list-decimal space-y-5 text-white leading-relaxed tracking-tight">
+  //         {children}
+  //       </ol>
+  //     );
+  //   },
 
-    li({ children }) {
-      const content = sanitizeContent(children);
-      return <li className="font-light text-2xl text-white/80">{content}</li>;
-    },
+  //   li({ children }) {
+  //     const content = sanitizeContent(children);
+  //     return <li className="font-light text-2xl text-white/80">{content}</li>;
+  //   },
 
-    p({ children }) {
-      const content = sanitizeContent(children);
-      return (
-        <p className="font-light text-3xl text-white tracking-tight">
-          {content}
-        </p>
-      );
-    },
+  //   p({ children }) {
+  //     const content = sanitizeContent(children);
+  //     return (
+  //       <p className="font-light text-3xl text-white tracking-tight">
+  //         {content}
+  //       </p>
+  //     );
+  //   },
 
-    h1({ children }) {
-      const content = sanitizeContent(children);
-      return <h1 className="mb-4 font-bold text-3xl text-white">{content}</h1>;
-    },
+  //   h1({ children }) {
+  //     const content = sanitizeContent(children);
+  //     return <h1 className="mb-4 font-bold text-3xl text-white">{content}</h1>;
+  //   },
 
-    h2({ children }) {
-      const content = sanitizeContent(children);
-      return (
-        <h2 className="mb-3 font-semibold text-2xl text-white">{content}</h2>
-      );
-    },
+  //   h2({ children }) {
+  //     const content = sanitizeContent(children);
+  //     return (
+  //       <h2 className="mb-3 font-semibold text-2xl text-white">{content}</h2>
+  //     );
+  //   },
 
-    h3({ children }) {
-      const content = sanitizeContent(children);
-      return <h3 className="mb-2 font-medium text-white text-xl">{content}</h3>;
-    },
+  //   h3({ children }) {
+  //     const content = sanitizeContent(children);
+  //     return <h3 className="mb-2 font-medium text-white text-xl">{content}</h3>;
+  //   },
 
-    h4({ children }) {
-      const content = sanitizeContent(children);
-      return <h4 className="mb-2 font-medium text-lg text-white">{content}</h4>;
-    },
+  //   h4({ children }) {
+  //     const content = sanitizeContent(children);
+  //     return <h4 className="mb-2 font-medium text-lg text-white">{content}</h4>;
+  //   },
 
-    strong({ children }) {
-      const content = sanitizeContent(children);
-      return <strong className="text-white">{content}</strong>;
-    },
+  //   strong({ children }) {
+  //     const content = sanitizeContent(children);
+  //     return <strong className="text-white">{content}</strong>;
+  //   },
 
-    em({ children }) {
-      const content = sanitizeContent(children);
-      return <em className="text-white italic">{content}</em>;
-    },
-  };
+  //   em({ children }) {
+  //     const content = sanitizeContent(children);
+  //     return <em className="text-white italic">{content}</em>;
+  //   },
+  // };
 
   // Check slide types
   const hasTestQuestions =
@@ -838,13 +838,9 @@ const ContentBlock: React.FC<{
 
           {textContent && textContent !== slide.title && (
             <div className="prose prose-lg prose-invert mt-6 max-w-none text-white">
-              <ReactMarkdown
-                components={markdownComponents}
-                rehypePlugins={[rehypeKatex, rehypeRaw]}
-                remarkPlugins={[remarkGfm, remarkMath]}
-              >
+              <Response>
                 {textContent}
-              </ReactMarkdown>
+              </Response>
             </div>
           )}
         </div>
@@ -879,13 +875,9 @@ const ContentBlock: React.FC<{
 
           {textContent && textContent !== slide.title && (
             <div className="prose prose-lg prose-invert mt-6 max-w-none text-white">
-              <ReactMarkdown
-                components={markdownComponents}
-                rehypePlugins={[rehypeKatex, rehypeRaw]}
-                remarkPlugins={[remarkGfm, remarkMath]}
-              >
+              <Response>
                 {textContent}
-              </ReactMarkdown>
+              </Response>
             </div>
           )}
         </div>
@@ -916,24 +908,18 @@ const ContentBlock: React.FC<{
         <div className="flex-1 px-8">
           <div className="mb-6">
             <div className="prose prose-lg prose-invert max-w-none">
-              <ReactMarkdown
-                components={markdownComponents}
-                remarkPlugins={[remarkGfm]}
-              >
+              <Response>
                 {slide.tables}
-              </ReactMarkdown>
+              </Response>
+
             </div>
           </div>
 
           {textContent && textContent !== slide.title && (
             <div className="prose prose-lg prose-invert max-w-none text-white">
-              <ReactMarkdown
-                components={markdownComponents}
-                rehypePlugins={[rehypeKatex, rehypeRaw]}
-                remarkPlugins={[remarkGfm, remarkMath]}
-              >
+              <Response>
                 {textContent}
-              </ReactMarkdown>
+              </Response>
             </div>
           )}
         </div>
@@ -962,40 +948,9 @@ const ContentBlock: React.FC<{
           <div className="prose prose-lg prose-invert max-w-none text-white">
             {textContent && textContent !== slide.title && (
               <div className="mb-6">
-                <ReactMarkdown
-                  components={{
-                    ...markdownComponents,
-                    code: ({ children, className }) => {
-                      const childrenText = Array.isArray(children)
-                        ? children
-                            .map((child) =>
-                              typeof child === "string" ? child : "",
-                            )
-                            .join("")
-                        : typeof children === "string"
-                          ? children
-                          : typeof children === "number"
-                            ? String(children)
-                            : "";
-                      const isInlineCode = !(
-                        className || childrenText.includes("\n")
-                      );
-                      if (isInlineCode) {
-                        return (
-                          <code className="z-2 rounded border-2 border-white/30 bg-black/60 px-2 py-1 text-sm text-white">
-                            {childrenText}
-                          </code>
-                        );
-                      }
-                      return null;
-                    },
-                    pre: () => null,
-                  }}
-                  rehypePlugins={[rehypeKatex, rehypeRaw]}
-                  remarkPlugins={[remarkGfm, remarkMath]}
-                >
+                <Response>
                   {textContent}
-                </ReactMarkdown>
+                </Response>
               </div>
             )}
 
@@ -1363,7 +1318,7 @@ const StageInfo: React.FC<StageInfoProps> = ({ stage }) => {
               className="fixed inset-0 z-40 bg-black/20"
               onClick={() => setAIMode(false)}
             />
-
+            //AI mode
             {/* Response panel (separate from input) */}
             {conversation.length > 0 && (
               <div className="pointer-events-auto fixed bottom-[160px] left-1/2 z-50 -translate-x-1/2 w-[min(900px,90vw)] max-h-[45vh] overflow-y-auto rounded-2xl border border-white/15 bg-black/70 p-4 shadow-2xl backdrop-blur-md scrollbar-thin scrollbar-thumb-white/10">
@@ -1382,9 +1337,9 @@ const StageInfo: React.FC<StageInfoProps> = ({ stage }) => {
                           {m.content}
                         </Response>
                       ) : (
-                        <div className="whitespace-pre-wrap text-white/80">
+                        <Response className="prose-sm max-w-none">
                           {m.content}
-                        </div>
+                        </Response>
                       )}
                     </div>
                   </div>
